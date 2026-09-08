@@ -328,6 +328,55 @@ async function main() {
     }
   }
 
+  // A channel with no topic reads as unfinished. These show in the header.
+  const TOPICS = {
+    'welcome-rules': 'The rules, and what OG means. Read once, then forget it.',
+    onboarding: 'Grab your games and your borough. Change them whenever.',
+    announcements: 'Server news. Rare on purpose.',
+    'general-chat': 'The main room. No topic beyond the pinned one.',
+    'sports-talk': 'Knicks, Nets, Yankees, Mets, Jets, Giants. Suffering, mostly.',
+    'pop-culture': "Music, shows, movies, whatever's playing.",
+    'deep-thoughts': '3am takes. No judgment. Some judgment.',
+    highlights: 'The best of the server, picked by ⭐. React to nominate.',
+    'irl-plans': 'Actually linking up. Say your borough and when.',
+    'bodega-tier-list': 'Serious academic work. Cite your sources.',
+    'mta-complaints': 'Therapy.',
+    lfg: "Run /lfg to pull people in — it pings the game's role.",
+    '2k': 'Park, MyTeam, and arguing about badges.',
+    cod: 'Loadouts, clips, and blaming the lobby.',
+    madden: 'Franchise, Ultimate Team, and the CPU cheating.',
+    'fighting-games': 'Sets, frame data, and getting bodied.',
+    'season-leaderboard': 'Points from everything. Updated weekly.',
+    pickem: 'Weekly picks. Lock them before kickoff.',
+    brackets: 'Brackets, seeding, and upsets.',
+    'game-of-the-month': "What everyone's playing this month. Vote here.",
+    'nfl-fantasy-forum': 'NFL league. One thread per trade, waiver, or grievance.',
+    'nba-fantasy-forum': 'NBA league. Same deal.',
+    standings: 'Both leagues, one place.',
+    'trade-court': 'Propose a trade. 24h vote: fair, collusion, or robbery.',
+    'smoke-lounge': '18+ only. Slow down.',
+    'mod-chat': 'Mods only.',
+    'warn-log': "Written automatically. Don't post here.",
+    'invite-tracking': 'Who brought whom.',
+    'og-chat': 'The original group chat, continued.',
+    'og-plans': "Things that aren't for the whole server yet.",
+    'og-hall-of-fame': 'Old memes, original prop bets, pre-server screenshots.',
+  };
+
+  let topicsSet = 0;
+  for (const [name, topic] of Object.entries(TOPICS)) {
+    const id = channelIdByName.get(name);
+    if (!id) continue;
+    try {
+      await discord('PATCH', `/channels/${id}`, { topic });
+      topicsSet += 1;
+      await sleep(250);
+    } catch (err) {
+      console.warn(`! Could not set the topic on #${name}: ${err.message}`);
+    }
+  }
+  console.log(`\nChannel topics set: ${topicsSet}.`);
+
   const WELCOME_SIGN =
     "This was a group chat first. Now it's here. Same people, same energy — " +
     'pick your games, pick your borough, and pull up.';

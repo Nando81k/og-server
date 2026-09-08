@@ -2,9 +2,17 @@
 
 `setup-server.mjs` builds out the full structure from
 [`docs/discord-server-plan.md`](../../docs/discord-server-plan.md) in one run:
-every category, every channel, every role — including the role hierarchy, real
-moderation permissions on `Mod`, the age-restricted flag on `#smoke-lounge`, and
-locking the `OG` and `AFTER HOURS` categories so `@everyone` can't see into them.
+every category, every channel, every role — including real moderation
+permissions on `Mod`, the age-restricted flag on `#smoke-lounge`, and locking the
+`OG` and `AFTER HOURS` categories so `@everyone` can't see into them.
+
+**Role order is best-effort.** The script tries to set the hierarchy and then
+reports the order Discord actually ended up with. In practice this often fails:
+a bot cannot place a role at or above its own, and dragging the bot to the top
+before the run has not reliably been enough. If the run reports the order is
+wrong, drag the roles yourself — work down the list dragging each role to the
+top in turn, which reverses it into the right order. Nothing else depends on it;
+order only drives name color and member-list grouping.
 It's idempotent, so re-running it after adding more channels by hand won't
 duplicate anything.
 

@@ -3,7 +3,8 @@
  * One-time Discord server setup for the NYC gamer crew server.
  *
  * Creates every category, channel, and role from docs/discord-server-plan.md,
- * sets the role hierarchy, gives Mod real moderation powers, flags #smoke-lounge
+ * attempts the role hierarchy (best-effort — see orderRoles), gives Mod real
+ * moderation powers, flags #smoke-lounge
  * as age-restricted, and locks down the OG and After Hours categories so
  * @everyone can't see into them. Safe to re-run — it skips anything that
  * already exists by name.

@@ -33,7 +33,16 @@ protect the core.
  ├─ #cod
  ├─ #madden
  ├─ #fighting-games
- └─ 🔊 Dynamic LFG voice channels (auto-created/deleted by bot)
+ ├─ 🔊 2K Voice / CoD Voice / Madden Voice / Fighting Games Voice
+ └─    (standing rooms — /lfg points at these rather than making disposable ones)
+
+📺 ANIME  (public)
+ ├─ #anime                  (the main room)
+ ├─ #currently-watching     (this season, week by week — spoiler-tagged)
+ ├─ #manga                  (assume everyone here is ahead of the anime)
+ ├─ #recommendations
+ ├─ #gacha                  (card bots confined here, not loose in #general-chat)
+ └─ 🔊 Watch Party
 
 🏆 SEASON + TOURNAMENTS  (public)
  ├─ #season-leaderboard     (pick'em + memes + aux battles + tournaments → one score)
@@ -81,7 +90,8 @@ and `Mod`, so a mod can moderate OG space without having to be an OG.
 | `Mod` | own color, own icon if using role icons | Trusted members you promote | Mod category, warn/timeout powers, and visibility into the OG category so they can moderate it |
 | `Member` | default | Passed onboarding | Public shell + unlocked-after-a-week channels |
 | `New Member` | default, muted | Just joined | Public channels only until 1 week / vouch |
-| Game roles (`2K`, `CoD`, `Madden`, `FGC`) | none needed | Self-assigned via reaction/onboarding menu | Pings + channel visibility for that game only |
+| Game roles (`2K`, `CoD`, `Madden`, `FGC`) | none needed | Self-assigned via reaction/onboarding menu | Pings for that game. The channels are public. |
+| `Watch Party` | none needed | Self-assigned | Pinged when a watch is starting |
 | Borough roles (`Bronx`, `Brooklyn`, `Manhattan`, `Queens`, `Staten Island`) | none needed | Self-assigned | Cosmetic + used for "who's nearby" in #irl-plans |
 | `18+` | none needed | Self-assigned with a real age gate step in onboarding | Unlocks #smoke-lounge and any NSFW channel |
 | Punishment role (e.g. `Fantasy Last Place`) | ugly/embarrassing color | Auto-assigned by fantasy bot | Forced nickname change until next draft |

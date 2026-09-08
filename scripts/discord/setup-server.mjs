@@ -120,6 +120,7 @@ const ROLE_DEFS = [
   { name: 'Madden', color: 0, mentionable: true },
   { name: 'CoD', color: 0, mentionable: true },
   { name: '2K', color: 0, mentionable: true },
+  { name: 'Watch Party', color: 0, mentionable: true },
   { name: 'New Member', color: 0x99aab5 },
   { name: 'Member', color: 0x99aab5 },
   { name: 'Mod', color: 0xe74c3c, hoist: true, permissions: MOD_PERMISSIONS },
@@ -291,6 +292,17 @@ async function main() {
       ],
     },
     {
+      category: 'ANIME',
+      channels: [
+        'anime',
+        'currently-watching',
+        'manga',
+        'recommendations',
+        'gacha',
+        { name: 'Watch Party', type: VOICE },
+      ],
+    },
+    {
       category: 'SEASON + TOURNAMENTS',
       channels: ['season-leaderboard', 'pickem', 'brackets', 'game-of-the-month'],
     },
@@ -346,6 +358,11 @@ async function main() {
     cod: 'Loadouts, clips, and blaming the lobby.',
     madden: 'Franchise, Ultimate Team, and the CPU cheating.',
     'fighting-games': 'Sets, frame data, and getting bodied.',
+    anime: 'The main room. Airing, finished, obscure, all of it.',
+    'currently-watching': "This season's shows, week by week. Tag your spoilers.",
+    manga: 'Manga talk. Assume everyone here is ahead of the anime.',
+    recommendations: 'What to watch next. Say why, not just what.',
+    gacha: 'Card bots live here so they do not live everywhere else.',
     'season-leaderboard': 'Points from everything. Updated weekly.',
     pickem: 'Weekly picks. Lock them before kickoff.',
     brackets: 'Brackets, seeding, and upsets.',
@@ -377,6 +394,19 @@ async function main() {
   }
   console.log(`\nChannel topics set: ${topicsSet}.`);
 
+  try {
+    await discord(
+      'PATCH',
+      `/guilds/${GUILD_ID}/channels`,
+      PLAN.map((section, i) => ({ id: categoryByName.get(section.category)?.id, position: i })).filter(
+        (e) => e.id
+      )
+    );
+    console.log('Category order set.');
+  } catch (err) {
+    console.warn(`! Could not order the categories (${err.message}). Drag ANIME into place.`);
+  }
+
   const WELCOME_SIGN =
     "This was a group chat first. Now it's here. Same people, same energy — " +
     'pick your games, pick your borough, and pull up.';
@@ -387,7 +417,7 @@ async function main() {
     ['general-chat', 'Where it happens. Come say something.', '💬'],
     ['lfg', 'Find people to run with, right now.', '🎮'],
     ['irl-plans', 'Linking up in the city.', '🗽'],
-    ['highlights', 'The best of what has happened here.', '⭐'],
+    ['anime', 'What we are all watching. Spoilers get tagged.', '📺'],
   ];
 
   try {

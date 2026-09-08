@@ -2,9 +2,11 @@
 
 `setup-server.mjs` builds out the full structure from
 [`docs/discord-server-plan.md`](../../docs/discord-server-plan.md) in one run:
-every category, every channel, every role — including locking the `OG` and
-`AFTER HOURS` categories so `@everyone` can't see into them. It's idempotent,
-so re-running it after adding more channels by hand won't duplicate anything.
+every category, every channel, every role — including the role hierarchy, real
+moderation permissions on `Mod`, the age-restricted flag on `#smoke-lounge`, and
+locking the `OG` and `AFTER HOURS` categories so `@everyone` can't see into them.
+It's idempotent, so re-running it after adding more channels by hand won't
+duplicate anything.
 
 ## 1. Create the bot
 
@@ -16,6 +18,10 @@ so re-running it after adding more channels by hand won't duplicate anything.
    or kick it entirely, once you're done — or keep it around as the base for
    the LFG/standings bots from Phase 2).
 4. Open the generated URL, pick your server, authorize.
+5. **Server Settings → Roles** → drag the bot's role to the top. A bot can only
+   reorder roles below its own, so without this the script creates everything
+   correctly but skips the hierarchy (it tells you when it does, and you can
+   either drag the roles yourself or re-run it afterwards).
 
 ## 2. Get your server ID
 
@@ -36,7 +42,7 @@ On purpose — these need a human, not an API call:
 
 - **Onboarding questions** (Server Settings → Onboarding) — the games/borough/interest
   picker that auto-assigns roles on join.
-- **Safety Setup** (Server Settings → Safety Setup) — confirming age-restricted
-  content is on for `#smoke-lounge`.
+- **Safety Setup** (Server Settings → Safety Setup) — the server-wide age gate.
+  The script already marks `#smoke-lounge` itself as age-restricted.
 - **Assigning the `OG` role** to your actual crew. Never automate this one — the
   whole point of OG is that it's a manual, human judgment call.

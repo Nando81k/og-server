@@ -3,8 +3,10 @@
  * One-time Discord server setup for the NYC gamer crew server.
  *
  * Creates every category, channel, and role from docs/discord-server-plan.md,
- * and locks down the OG and After Hours categories so @everyone can't see
- * into them. Safe to re-run — it skips anything that already exists by name.
+ * sets the role hierarchy, gives Mod real moderation powers, flags #smoke-lounge
+ * as age-restricted, and locks down the OG and After Hours categories so
+ * @everyone can't see into them. Safe to re-run — it skips anything that
+ * already exists by name.
  *
  * Usage:
  *   BOT_TOKEN=xxxx GUILD_ID=xxxx node scripts/discord/setup-server.mjs
@@ -14,13 +16,15 @@
  *      No privileged gateway intents needed; this script only calls the REST API.
  *   2. OAuth2 -> URL Generator -> scope: "bot" -> permission: Administrator
  *      (simplest for a one-time setup bot; you can strip it back down after).
- *   3. Open the generated URL, pick your server, authorize.
+ *   3. Open the generated URL, pick your server, authorize. Then drag the bot's
+      role to the top of Server Settings -> Roles: a bot can only order roles
+      below its own, and the script says so and skips that step if it can't.
  *   4. GUILD_ID is your server's ID: right-click the server icon in Discord ->
  *      Copy Server ID (enable Settings -> Advanced -> Developer Mode first).
  *
  * Left for the Discord dashboard on purpose (no bot API for these):
  *   - Server Settings -> Onboarding: the games/borough/interest questions
- *   - Server Settings -> Safety Setup: confirm age-restricted content is on
+ *   - Server Settings -> Safety Setup: the server-wide age gate
  *   - Assigning the OG role to your actual crew — never automate that one
  */
 
@@ -34,6 +38,20 @@ if (!TOKEN || !GUILD_ID) {
 
 const API = 'https://discord.com/api/v10';
 const VIEW_CHANNEL = '1024'; // bit 10
+
+// Mod's actual moderation powers. Without these the role is just a red name.
+const MOD_PERMISSIONS = [
+  1n << 1n, // KICK_MEMBERS
+  1n << 2n, // BAN_MEMBERS
+  1n << 7n, // VIEW_AUDIT_LOG
+  1n << 13n, // MANAGE_MESSAGES
+  1n << 22n, // MUTE_MEMBERS
+  1n << 23n, // DEAFEN_MEMBERS
+  1n << 24n, // MOVE_MEMBERS
+  1n << 27n, // MANAGE_NICKNAMES
+  1n << 34n, // MANAGE_THREADS
+  1n << 40n, // MODERATE_MEMBERS (timeout)
+].reduce((a, b) => a | b, 0n).toString();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -62,8 +80,9 @@ async function discord(method, path, body) {
 const denyView = (id) => ({ id, type: 0, deny: VIEW_CHANNEL, allow: '0' });
 const allowView = (id) => ({ id, type: 0, allow: VIEW_CHANNEL, deny: '0' });
 
-// Created bottom-to-top: each new custom role lands above the previous one,
-// so this order produces OG at the top of the member list and 18+ near the bottom.
+// Listed bottom-to-top. Discord does not document where a newly created role
+// lands (same-position roles are tie-broken by id), so orderRoles() below sets
+// the hierarchy explicitly rather than trusting creation order.
 const ROLE_DEFS = [
   { name: '18+', color: 0x992d22 },
   { name: 'Staten Island', color: 0 },
@@ -77,10 +96,47 @@ const ROLE_DEFS = [
   { name: '2K', color: 0, mentionable: true },
   { name: 'New Member', color: 0x99aab5 },
   { name: 'Member', color: 0x99aab5 },
-  { name: 'Mod', color: 0xe74c3c, hoist: true },
+  { name: 'Mod', color: 0xe74c3c, hoist: true, permissions: MOD_PERMISSIONS },
   { name: 'Veteran', color: 0x1abc9c, hoist: true },
   { name: 'OG', color: 0xf1c40f, hoist: true },
 ];
+
+// A bot can only move roles below its own, so the block is stacked directly
+// under the bot's highest role instead of at a fixed position.
+async function orderRoles(roleIds) {
+  try {
+    const me = await discord('GET', '/users/@me');
+    const [member, roles] = await Promise.all([
+      discord('GET', `/guilds/${GUILD_ID}/members/${me.id}`),
+      discord('GET', `/guilds/${GUILD_ID}/roles`),
+    ]);
+    const positionById = new Map(roles.map((r) => [r.id, r.position]));
+    const botTop = Math.max(0, ...member.roles.map((id) => positionById.get(id) ?? 0));
+    const ceiling = botTop - 1; // highest slot the bot is allowed to write
+
+    if (ceiling < ROLE_DEFS.length) {
+      console.warn(
+        `\n! Skipped role ordering: the bot's own role sits at position ${botTop}, too low` +
+          ` to stack ${ROLE_DEFS.length} roles beneath it.\n` +
+          `  Fix: Server Settings -> Roles, drag the bot's role to the top, then re-run.\n` +
+          `  Everything else still applied — role order only affects name color and hoisting.\n`
+      );
+      return;
+    }
+
+    await discord(
+      'PATCH',
+      `/guilds/${GUILD_ID}/roles`,
+      ROLE_DEFS.map((def, i) => ({
+        id: roleIds[def.name],
+        position: ceiling - ROLE_DEFS.length + 1 + i,
+      }))
+    );
+    console.log('Role order set: OG highest, 18+ lowest.');
+  } catch (err) {
+    console.warn(`! Could not set role order (${err.message}). Drag them in Server Settings -> Roles.`);
+  }
+}
 
 const TEXT = 0;
 const VOICE = 2;
@@ -106,6 +162,7 @@ async function main() {
         color: def.color ?? 0,
         hoist: !!def.hoist,
         mentionable: !!def.mentionable,
+        permissions: def.permissions ?? '0',
       });
       await sleep(400);
     } else {
@@ -113,6 +170,8 @@ async function main() {
     }
     roleIds[def.name] = role.id;
   }
+
+  await orderRoles(roleIds);
 
   const categoryByName = new Map(
     existingChannels.filter((c) => c.type === 4).map((c) => [c.name, c])
@@ -141,6 +200,7 @@ async function main() {
   async function ensureChannel(def, parent, sectionOverwrites) {
     const name = typeof def === 'string' ? def : def.name;
     const type = typeof def === 'string' ? TEXT : def.type ?? TEXT;
+    const nsfw = typeof def === 'string' ? false : !!def.nsfw;
     const key = `${parent.id}:${name}`;
     if (channelByKey.has(key)) {
       console.log(`Channel exists, skipping: #${name}`);
@@ -150,6 +210,7 @@ async function main() {
     const chan = await discord('POST', `/guilds/${GUILD_ID}/channels`, {
       name,
       type,
+      nsfw,
       parent_id: parent.id,
       permission_overwrites: sectionOverwrites ?? [],
     });
@@ -191,7 +252,11 @@ async function main() {
         { name: 'Draft Night', type: VOICE },
       ],
     },
-    { category: 'AFTER HOURS', channels: ['smoke-lounge'], overwrites: afterHoursOverwrites },
+    {
+      category: 'AFTER HOURS',
+      channels: [{ name: 'smoke-lounge', nsfw: true }],
+      overwrites: afterHoursOverwrites,
+    },
     {
       category: 'MOD',
       channels: ['mod-chat', 'warn-log', 'invite-tracking'],
@@ -213,7 +278,7 @@ async function main() {
 
   console.log('\nDone. Still manual, on purpose:');
   console.log('  - Server Settings -> Onboarding: add games/borough/interest questions');
-  console.log('  - Server Settings -> Safety Setup: confirm age-restricted content is on');
+  console.log('  - Server Settings -> Safety Setup: confirm the server-wide age gate');
   console.log('  - Assign the OG role to your actual crew yourself');
 }
 

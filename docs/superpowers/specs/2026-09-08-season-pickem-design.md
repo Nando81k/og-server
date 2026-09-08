@@ -22,8 +22,10 @@ scope: 2K, CoD, Madden and FGC earn nothing. A pick'em that still runs in
 February beats a broader system that dies in October because someone stopped
 entering results.
 
-**Picks are confidence-ranked.** Rank all 16 games from 1 to 16. A correct
-pick earns its rank; a wrong one earns nothing. Maximum 136 a week. This needs
+**Picks are confidence-ranked.** Rank every game in the week from 1 to N. A
+correct pick earns its rank; a wrong one earns nothing. N is 16 early in the
+season and drops to 13 or 14 once bye weeks start, so the weekly maximum moves
+with the slate — 136 in a full week, less in a bye week. This needs
 no data beyond who won, and separates skill far more sharply than straight
 winners, where a normal NFL week leaves everyone within two points of each
 other.
@@ -41,9 +43,11 @@ Everything runs inside the existing Cloudflare Worker. No new hosting.
 | Scoring | Cron, Tuesday | Fetch results, set winners, score the finished week |
 | Leaderboard | Cron, Tuesday | Post standings to `#season-leaderboard` |
 
-Scoring and the leaderboard share one cron run, ordered: results, then score,
-then post. A failure at any step leaves the later ones undone rather than
-publishing something half-computed.
+One Tuesday cron does all of it, in this order: score and post **last** week,
+then sync the schedule for **this** week. Ordering matters — syncing first
+would make "the current week" ambiguous while last week is still unscored. A
+failure at any step leaves the later ones undone rather than publishing
+something half-computed.
 
 ### Data source
 
@@ -94,6 +98,16 @@ There is no standings table. Standings are a query over `picks` joined to
 winner instantly corrects every affected total.
 
 ## Flows
+
+### Which week is "current"
+
+The open week is the one whose games are in `games` with no `winner` set and
+whose lock has not passed. There is exactly one at a time: last week is scored
+before this week is synced, so the two never overlap.
+
+Between a week locking and its Tuesday scoring there is no open week. `/picks`
+says so plainly — "Week 1 is locked. Week 2 opens Tuesday." — rather than
+handing out a link that cannot be used.
 
 ### Submitting picks
 
@@ -163,6 +177,8 @@ pick'em already has.
 | No picks from a user | Zero for that week. Silent. |
 | Invalid or expired token | Plain page: "That link has expired — run /picks again." |
 | Submission after lock | Rejected with the lock time, picks unchanged. |
+| A game is rescheduled before lock | Sync updates its kickoff. If that changes the earliest kickoff, the lock moves with it. Picks are untouched. |
+| A game is postponed out of the week | Voided, like a tie. Nobody scores it, and it leaves a gap in that user's confidence range — accepted, because renumbering everyone's ranking after the fact would silently change picks they made. |
 
 ## Testing
 

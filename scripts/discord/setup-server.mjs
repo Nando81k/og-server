@@ -221,6 +221,8 @@ async function main() {
     return cat;
   }
 
+  const channelIdByName = new Map();
+
   async function ensureChannel(def, parent, sectionOverwrites) {
     const name = typeof def === 'string' ? def : def.name;
     const type = typeof def === 'string' ? TEXT : def.type ?? TEXT;
@@ -228,7 +230,9 @@ async function main() {
     const key = `${parent.id}:${name}`;
     if (channelByKey.has(key)) {
       console.log(`Channel exists, skipping: #${name}`);
-      return channelByKey.get(key);
+      const existing = channelByKey.get(key);
+      channelIdByName.set(name, existing.id);
+      return existing;
     }
     console.log(`Creating channel: #${name} (${parent.name})`);
     const chan = await discord('POST', `/guilds/${GUILD_ID}/channels`, {
@@ -240,6 +244,7 @@ async function main() {
     });
     await sleep(400);
     channelByKey.set(key, chan);
+    channelIdByName.set(name, chan.id);
     return chan;
   }
 
@@ -299,6 +304,37 @@ async function main() {
     for (const chDef of section.channels) {
       await ensureChannel(chDef, cat, section.overwrites);
     }
+  }
+
+  const WELCOME_SIGN =
+    "This was a group chat first. Now it's here. Same people, same energy — " +
+    'pick your games, pick your borough, and pull up.';
+
+  const WELCOME_CHANNELS = [
+    ['welcome-rules', 'Start here. Five rules, and what OG actually means.', '📌'],
+    ['general-chat', 'Where it happens. Say something so we know you are real.', '💬'],
+    ['lfg', 'Find people to run with, right now.', '🎮'],
+    ['irl-plans', 'Linking up in the city.', '🗽'],
+    ['highlights', 'The best of what has happened here.', '⭐'],
+  ];
+
+  try {
+    await discord('PATCH', `/guilds/${GUILD_ID}/welcome-screen`, {
+      enabled: true,
+      description: WELCOME_SIGN,
+      welcome_channels: WELCOME_CHANNELS.filter(([name]) => channelIdByName.has(name)).map(
+        ([name, description, emoji_name]) => ({
+          channel_id: channelIdByName.get(name),
+          description,
+          emoji_id: null,
+          emoji_name,
+        })
+      ),
+    });
+    console.log('\nWelcome screen set.');
+  } catch (err) {
+    console.warn(`\n! Could not set the welcome screen (${err.message}).`);
+    console.warn('  Server Settings -> Welcome Screen, if your server has it.');
   }
 
   if (order.ok) {

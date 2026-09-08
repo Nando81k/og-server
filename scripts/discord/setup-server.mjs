@@ -125,9 +125,12 @@ const ROLE_DEFS = [
   { name: 'OG', color: 0xf1c40f, hoist: true },
 ];
 
-// A bot can only move roles below its own, so the block is stacked directly
-// under the bot's highest role instead of at a fixed position.
+// A bot can only move roles below its own, and where a freshly created role
+// lands is not documented. So rather than predict either, set the positions,
+// then read back what Discord actually did and report that.
 async function orderRoles(roleIds) {
+  const wanted = ROLE_DEFS.map((d) => d.name).slice().reverse(); // highest first
+
   try {
     const me = await discord('GET', '/users/@me');
     const [member, roles] = await Promise.all([
@@ -136,30 +139,26 @@ async function orderRoles(roleIds) {
     ]);
     const positionById = new Map(roles.map((r) => [r.id, r.position]));
     const botTop = Math.max(0, ...member.roles.map((id) => positionById.get(id) ?? 0));
-    const ceiling = botTop - 1; // highest slot the bot is allowed to write
-
-    if (ceiling < ROLE_DEFS.length) {
-      console.warn(
-        `\n! Skipped role ordering: the bot's own role sits at position ${botTop}, too low` +
-          ` to stack ${ROLE_DEFS.length} roles beneath it.\n` +
-          `  Fix: Server Settings -> Roles, drag the bot's role to the top, then re-run.\n` +
-          `  Everything else still applied — role order only affects name color and hoisting.\n`
-      );
-      return;
-    }
+    // Sit the block directly under the bot; position 0 belongs to @everyone.
+    const base = Math.max(1, botTop - ROLE_DEFS.length);
 
     await discord(
       'PATCH',
       `/guilds/${GUILD_ID}/roles`,
-      ROLE_DEFS.map((def, i) => ({
-        id: roleIds[def.name],
-        position: ceiling - ROLE_DEFS.length + 1 + i,
-      }))
+      ROLE_DEFS.map((def, i) => ({ id: roleIds[def.name], position: base + i }))
     );
-    console.log('Role order set: OG highest, 18+ lowest.');
   } catch (err) {
-    console.warn(`! Could not set role order (${err.message}). Drag them in Server Settings -> Roles.`);
+    console.warn(`! Role ordering request was rejected: ${err.message}`);
   }
+
+  const after = await discord('GET', `/guilds/${GUILD_ID}/roles`);
+  const ours = new Set(Object.values(roleIds));
+  const actual = after
+    .filter((r) => ours.has(r.id))
+    .sort((a, b) => b.position - a.position || (a.id < b.id ? -1 : 1))
+    .map((r) => r.name);
+
+  return { ok: actual.join(' > ') === wanted.join(' > '), actual, wanted };
 }
 
 const TEXT = 0;
@@ -195,7 +194,7 @@ async function main() {
     roleIds[def.name] = role.id;
   }
 
-  await orderRoles(roleIds);
+  const order = await orderRoles(roleIds);
 
   const categoryByName = new Map(
     existingChannels.filter((c) => c.type === 4).map((c) => [c.name, c])
@@ -299,6 +298,17 @@ async function main() {
     for (const chDef of section.channels) {
       await ensureChannel(chDef, cat, section.overwrites);
     }
+  }
+
+  if (order.ok) {
+    console.log(`\nRole order, top to bottom: ${order.actual.join(' > ')}`);
+  } else {
+    console.warn('\n! The roles are NOT in the intended order.');
+    console.warn(`    now: ${order.actual.join(' > ')}`);
+    console.warn(`   want: ${order.wanted.join(' > ')}`);
+    console.warn('  A bot can only move roles below its own, so this means the bot sits too low.');
+    console.warn('  Fix: Server Settings -> Roles, drag the bot above OG, then re-run this script.');
+    console.warn('  Nothing else is affected — order only drives name color and the member list.');
   }
 
   console.log('\nDone. Still manual, on purpose:');

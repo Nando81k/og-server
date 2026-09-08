@@ -131,6 +131,19 @@ const ROLE_DEFS = [
 // then read back what Discord actually did and report that.
 async function orderRoles(roleIds) {
   const wanted = ROLE_DEFS.map((d) => d.name).slice().reverse(); // highest first
+  const ours = new Set(Object.values(roleIds));
+
+  const readOrder = async () =>
+    (await discord('GET', `/guilds/${GUILD_ID}/roles`))
+      .filter((r) => ours.has(r.id))
+      .sort((a, b) => b.position - a.position || (a.id < b.id ? -1 : 1))
+      .map((r) => r.name);
+
+  // Someone may have arranged these by hand already.
+  const before = await readOrder();
+  if (before.join(' > ') === wanted.join(' > ')) {
+    return { ok: true, actual: before, wanted };
+  }
 
   try {
     const me = await discord('GET', '/users/@me');
@@ -152,13 +165,7 @@ async function orderRoles(roleIds) {
     console.warn(`! Role ordering request was rejected: ${err.message}`);
   }
 
-  const after = await discord('GET', `/guilds/${GUILD_ID}/roles`);
-  const ours = new Set(Object.values(roleIds));
-  const actual = after
-    .filter((r) => ours.has(r.id))
-    .sort((a, b) => b.position - a.position || (a.id < b.id ? -1 : 1))
-    .map((r) => r.name);
-
+  const actual = await readOrder();
   return { ok: actual.join(' > ') === wanted.join(' > '), actual, wanted };
 }
 
@@ -310,9 +317,10 @@ async function main() {
     "This was a group chat first. Now it's here. Same people, same energy — " +
     'pick your games, pick your borough, and pull up.';
 
+  // Discord rejects any description over 50 characters, so these stay short.
   const WELCOME_CHANNELS = [
-    ['welcome-rules', 'Start here. Five rules, and what OG actually means.', '📌'],
-    ['general-chat', 'Where it happens. Say something so we know you are real.', '💬'],
+    ['welcome-rules', 'Start here. The rules, and what OG means.', '📌'],
+    ['general-chat', 'Where it happens. Come say something.', '💬'],
     ['lfg', 'Find people to run with, right now.', '🎮'],
     ['irl-plans', 'Linking up in the city.', '🗽'],
     ['highlights', 'The best of what has happened here.', '⭐'],

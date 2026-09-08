@@ -27,10 +27,11 @@
  *   4. The server ID: right-click the server icon in Discord -> Copy Server ID
  *      (enable Settings -> Advanced -> Developer Mode first).
  *
- * Left for the Discord dashboard on purpose (no bot API for these):
- *   - Server Settings -> Onboarding: the games/borough/interest questions
- *   - Server Settings -> Safety Setup: the server-wide age gate
- *   - Assigning the OG role to your actual crew — never automate that one
+ * Not handled here:
+ *   - Server Settings -> Safety Setup: the server-wide age gate. No API exists.
+ *   - Onboarding questions. PUT /guilds/{id}/onboarding could do it; this
+ *     script does not, because the questions are worth deciding by hand.
+ *   - Assigning the OG role to your crew — never automate that one.
  */
 
 import { askVisible, askHidden } from './prompt.mjs';
@@ -356,10 +357,10 @@ async function main() {
     console.warn('  Nothing else is affected — order only drives name color and the member list.');
   }
 
-  console.log('\nDone. Still manual, on purpose:');
-  console.log('  - Server Settings -> Onboarding: add games/borough/interest questions');
-  console.log('  - Server Settings -> Safety Setup: confirm the server-wide age gate');
-  console.log('  - Assign the OG role to your actual crew yourself');
+  console.log('\nDone. Not handled here:');
+  console.log('  - Server Settings -> Safety Setup: the server-wide age gate. No API for it.');
+  console.log('  - Onboarding questions: Discord has an API, this script just does not use it.');
+  console.log('  - Assign the OG role to your crew yourself. Never automate that one.');
 }
 
 main().catch((err) => {

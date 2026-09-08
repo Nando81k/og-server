@@ -37,10 +37,15 @@ common reason a working bot appears to do nothing.
 
 ```bash
 npm install
-BOT_TOKEN=... GUILD_ID=... node scripts/bot/index.mjs
+node scripts/bot/index.mjs
 ```
 
-Optional: `MEMBER_AFTER_DAYS` (default `7`).
+It asks for the server id, then the token. The token stays hidden as you paste
+it, so it never appears on screen or in your shell history.
+
+For an unattended run on a host, set `BOT_TOKEN` and `GUILD_ID` in the
+environment instead and both prompts are skipped. Optional:
+`MEMBER_AFTER_DAYS` (default `7`).
 
 ## Where to run it
 

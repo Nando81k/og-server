@@ -13,7 +13,9 @@
  *   2. Invite the bot with: Manage Channels, Manage Roles, Move Members,
  *      Send Messages, and Use Application Commands.
  *   3. Drag its role above Member and New Member, or it cannot assign them.
- *   4. BOT_TOKEN=... GUILD_ID=... node scripts/bot/index.mjs
+ *   4. node scripts/bot/index.mjs
+ *      It asks for the server id and the token; the token stays hidden.
+ *      Set BOT_TOKEN and GUILD_ID in the environment to skip both prompts.
  */
 
 import {
@@ -27,6 +29,8 @@ import {
   MessageFlags,
 } from 'discord.js';
 
+import { askVisible, askHidden } from '../discord/prompt.mjs';
+
 import {
   GAME_ROLES,
   TEMP_PREFIX,
@@ -37,15 +41,30 @@ import {
   clampSlots,
 } from './lib.mjs';
 
-const TOKEN = process.env.BOT_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
 const AFTER_DAYS = Number(process.env.MEMBER_AFTER_DAYS ?? 7);
 const GRACE_MS = 5 * 60 * 1000; // an empty room gets 5 minutes before it goes
 const SWEEP_MS = 5 * 60 * 1000;
 const PROMOTE_MS = 6 * 60 * 60 * 1000;
 
+// Prompted for when absent, same as the setup script: nothing to paste a
+// credential into by mistake, and nothing landing in shell history.
+const interactive = process.stdin.isTTY && process.stdout.isTTY;
+
+let GUILD_ID = process.env.GUILD_ID;
+if (!GUILD_ID && interactive) {
+  GUILD_ID = await askVisible('Server ID (right-click the server icon -> Copy Server ID): ');
+}
+
+let TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN && interactive) {
+  TOKEN = await askHidden('Bot token (paste it — nothing will appear — then press Enter): ');
+}
+
 if (!TOKEN || !GUILD_ID) {
-  console.error('Set BOT_TOKEN and GUILD_ID. See the header of this file.');
+  console.error(
+    'Need a bot token and a server ID. Run this in a terminal to be prompted for both,\n' +
+      'or set BOT_TOKEN and GUILD_ID in the environment for an unattended run.'
+  );
   process.exit(1);
 }
 

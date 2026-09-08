@@ -4,10 +4,20 @@ export const SCOREBOARD_URL =
 export function parseScoreboard(json) {
   const season = json?.season?.year;
   const week = json?.week?.number;
+
+  if (season === undefined) throw new Error('Malformed payload: missing season');
+  if (week === undefined) throw new Error('Malformed payload: missing week');
+
   const games = (json?.events ?? []).map((event) => {
-    const c = event.competitions[0];
+    const c = event.competitions?.[0];
+    if (!c) throw new Error(`Malformed event ${event.id}: missing competitions array`);
+
     const home = c.competitors.find((t) => t.homeAway === 'home');
+    if (!home) throw new Error(`Malformed event ${event.id}: missing home competitor`);
+
     const away = c.competitors.find((t) => t.homeAway === 'away');
+    if (!away) throw new Error(`Malformed event ${event.id}: missing away competitor`);
+
     const completed = c.status?.type?.completed === true;
     const won = c.competitors.find((t) => t.winner === true);
     return {

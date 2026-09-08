@@ -67,8 +67,8 @@ protect the core.
 
 **Permission rule of thumb:** set permission overrides at the *category* level, not
 per-channel. New channels dropped into a category inherit its overrides automatically.
-Explicitly deny `View Channel` on the OG category for any Mod role given to
-non-OGs, so a community mod can never peek into OG space.
+The OG category denies `View Channel` to `@everyone` and allows it for both `OG`
+and `Mod`, so a mod can moderate OG space without having to be an OG.
 
 ---
 
@@ -78,7 +78,7 @@ non-OGs, so a community mod can never peek into OG space.
 |---|---|---|---|
 | `OG` | distinct/bright, near top | Manually assigned. Was in the group chat before the server went public. Never earnable. | Everything, including 🔒 OG category |
 | `Veteran` | secondary color | Earned over time (e.g. 6–12 months active) or vouched by an existing member | Some gated channels (define which up front), not the OG category |
-| `Mod` | own color, own icon if using role icons | Trusted members you promote | Mod category, warn/timeout powers, **denied** OG category |
+| `Mod` | own color, own icon if using role icons | Trusted members you promote | Mod category, warn/timeout powers, and visibility into the OG category so they can moderate it |
 | `Member` | default | Passed onboarding | Public shell + unlocked-after-a-week channels |
 | `New Member` | default, muted | Just joined | Public channels only until 1 week / vouch |
 | Game roles (`2K`, `CoD`, `Madden`, `FGC`) | none needed | Self-assigned via reaction/onboarding menu | Pings + channel visibility for that game only |

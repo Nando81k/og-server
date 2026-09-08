@@ -219,7 +219,8 @@ async function main() {
     return chan;
   }
 
-  const ogOverwrites = [denyView(everyoneId), allowView(roleIds['OG']), denyView(roleIds['Mod'])];
+  // Mods can see OG space so they can moderate it, without being OGs themselves.
+  const ogOverwrites = [denyView(everyoneId), allowView(roleIds['OG']), allowView(roleIds['Mod'])];
   const afterHoursOverwrites = [denyView(everyoneId), allowView(roleIds['18+'])];
   const modOverwrites = [denyView(everyoneId), allowView(roleIds['Mod']), allowView(roleIds['OG'])];
 

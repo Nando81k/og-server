@@ -51,12 +51,29 @@ environment instead and both prompts are skipped. Optional:
 
 Unlike the setup script, this one has to stay running — a closed laptop is a
 dead bot. It needs an always-on host with Node 18+, and it is small enough for
-the smallest tier of anything: a hosting service's free or hobby plan, a cheap
-VPS, or a Raspberry Pi on your own network all work equally well.
+the smallest tier of anything: a hosting service's cheapest plan, a small VPS,
+or a Raspberry Pi on your own network all work equally well.
 
 It holds no database and writes no files, so there is nothing to back up and
 nothing lost on a restart — it re-reads everything from Discord on boot,
 including sweeping up any LFG rooms left behind while it was down.
+
+Whatever you use, three settings:
+
+| Setting | Value |
+|---|---|
+| Start command | `node scripts/bot/index.mjs` |
+| `BOT_TOKEN` | the bot's token |
+| `GUILD_ID` | the server id |
+
+Set those as the host's environment variables. Never commit the token — `.env`
+and `node_modules/` are already gitignored.
+
+**If the host expects a web service.** This is a worker: it connects out to
+Discord and listens on nothing, and some platforms kill a process that never
+binds a port. Set `PORT` and the bot starts a tiny health endpoint alongside
+itself — `200` once it is logged in, `503` while it is still starting. Leave
+`PORT` unset anywhere that doesn't need it and no server is started at all.
 
 ## Tests
 

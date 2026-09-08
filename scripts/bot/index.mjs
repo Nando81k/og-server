@@ -242,4 +242,18 @@ client.on(Events.VoiceStateUpdate, async (before) => {
   }
 });
 
+// Most hosts expect something listening on a port and will kill a process that
+// never binds one. A bot has no reason to serve HTTP, so this only runs when a
+// host asks for it by setting PORT, and it doubles as a health check.
+if (process.env.PORT) {
+  const { createServer } = await import('node:http');
+  createServer((req, res) => {
+    const up = client.isReady();
+    res.writeHead(up ? 200 : 503, { 'Content-Type': 'text/plain' });
+    res.end(up ? `ok, logged in as ${client.user.tag}\n` : 'starting\n');
+  }).listen(Number(process.env.PORT), () => {
+    console.log(`Health check listening on :${process.env.PORT}`);
+  });
+}
+
 client.login(TOKEN);

@@ -1,0 +1,13 @@
+name = "og-server-bot"
+main = "src/index.mjs"
+compatibility_date = "2026-09-01"
+
+# The promotion pass. Once a day is plenty — nobody's seventh day is urgent.
+[triggers]
+crons = ["0 9 * * *"]
+
+# Set with `wrangler secret put`, never in this file:
+#   DISCORD_TOKEN, DISCORD_PUBLIC_KEY
+[vars]
+GUILD_ID = ""
+MEMBER_AFTER_DAYS = "7"

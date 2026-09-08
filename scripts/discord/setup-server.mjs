@@ -275,7 +275,21 @@ async function main() {
       ],
     },
     { category: 'NYC', channels: ['irl-plans', 'bodega-tier-list', 'mta-complaints'] },
-    { category: 'GAMES', channels: ['lfg', '2k', 'cod', 'madden', 'fighting-games'] },
+    {
+      category: 'GAMES',
+      channels: [
+        'lfg',
+        '2k',
+        'cod',
+        'madden',
+        'fighting-games',
+        // Standing rooms /lfg points people at, one per game.
+        { name: '2K Voice', type: VOICE },
+        { name: 'CoD Voice', type: VOICE },
+        { name: 'Madden Voice', type: VOICE },
+        { name: 'Fighting Games Voice', type: VOICE },
+      ],
+    },
     {
       category: 'SEASON + TOURNAMENTS',
       channels: ['season-leaderboard', 'pickem', 'brackets', 'game-of-the-month'],

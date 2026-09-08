@@ -7,7 +7,8 @@
   "scripts": {
     "setup": "node scripts/discord/setup-server.mjs",
     "bot": "node scripts/bot/index.mjs",
-    "test": "node scripts/bot/lib.test.mjs"
+    "test": "node scripts/bot/lib.test.mjs && node worker/src/verify.test.mjs && node worker/src/index.test.mjs",
+    "register": "node scripts/discord/register-commands.mjs"
   },
   "engines": {
     "node": ">=18"

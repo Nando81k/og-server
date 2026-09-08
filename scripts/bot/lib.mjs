@@ -11,6 +11,26 @@ export const GAME_ROLES = {
   fgc: 'Fighting Games',
 };
 
+/**
+ * The permanent voice room per game. Discord's REST API exposes one user's
+ * voice state but never a list, so nothing without a live gateway connection
+ * can tell whether a room has emptied out. Standing rooms sidestep that
+ * entirely: nothing to create, nothing to clean up, and no way to disconnect
+ * a live session by deleting a channel underneath it.
+ */
+export const GAME_VOICE = {
+  '2k': '2K Voice',
+  cod: 'CoD Voice',
+  madden: 'Madden Voice',
+  fgc: 'Fighting Games Voice',
+};
+
+export function voiceRoomFor(game) {
+  const name = GAME_VOICE[game];
+  if (!name) throw new Error(`unknown game: ${game}`);
+  return name;
+}
+
 /** Marks a voice channel as ours, so orphans can be swept after a restart. */
 export const TEMP_PREFIX = 'LFG · ';
 

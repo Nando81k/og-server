@@ -1,0 +1,18 @@
+{
+  "name": "og-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Setup script and bot for the OG Discord server",
+  "scripts": {
+    "setup": "node scripts/discord/setup-server.mjs",
+    "bot": "node scripts/bot/index.mjs",
+    "test": "node scripts/bot/lib.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}

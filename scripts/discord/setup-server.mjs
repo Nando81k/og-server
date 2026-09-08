@@ -9,7 +9,11 @@
  * already exists by name.
  *
  * Usage:
- *   BOT_TOKEN=xxxx GUILD_ID=xxxx node scripts/discord/setup-server.mjs
+ *   node scripts/discord/setup-server.mjs
+ *
+ * It prompts for the server ID and the bot token (the token stays hidden as you
+ * paste it, and never reaches your shell history). To run it unattended instead,
+ * set BOT_TOKEN and GUILD_ID in the environment and it skips both prompts.
  *
  * Setup (Discord Developer Portal, https://discord.com/developers/applications):
  *   1. New Application -> name it -> Bot tab -> Reset Token, copy it (BOT_TOKEN).
@@ -19,8 +23,8 @@
  *   3. Open the generated URL, pick your server, authorize. Then drag the bot's
       role to the top of Server Settings -> Roles: a bot can only order roles
       below its own, and the script says so and skips that step if it can't.
- *   4. GUILD_ID is your server's ID: right-click the server icon in Discord ->
- *      Copy Server ID (enable Settings -> Advanced -> Developer Mode first).
+ *   4. The server ID: right-click the server icon in Discord -> Copy Server ID
+ *      (enable Settings -> Advanced -> Developer Mode first).
  *
  * Left for the Discord dashboard on purpose (no bot API for these):
  *   - Server Settings -> Onboarding: the games/borough/interest questions
@@ -28,11 +32,31 @@
  *   - Assigning the OG role to your actual crew — never automate that one
  */
 
-const TOKEN = process.env.BOT_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
+import { askVisible, askHidden } from './prompt.mjs';
+
+// Both values are prompted for when they aren't already in the environment.
+// Asking for the token keeps it out of shell history, and leaves nothing in the
+// command someone could paste it into by mistake. The environment variables are
+// still honored so a non-interactive run works unchanged.
+const interactive = process.stdin.isTTY && process.stdout.isTTY;
+
+let GUILD_ID = process.env.GUILD_ID;
+if (!GUILD_ID && interactive) {
+  GUILD_ID = await askVisible(
+    'Server ID (Developer Mode on, right-click the server icon -> Copy Server ID): '
+  );
+}
+
+let TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN && interactive) {
+  TOKEN = await askHidden('Bot token (paste it — nothing will appear — then press Enter): ');
+}
 
 if (!TOKEN || !GUILD_ID) {
-  console.error('Set BOT_TOKEN and GUILD_ID environment variables first.');
+  console.error(
+    'Need a bot token and a server ID. Run this in a terminal to be prompted for both,\n' +
+      'or set BOT_TOKEN and GUILD_ID in the environment for a non-interactive run.'
+  );
   process.exit(1);
 }
 

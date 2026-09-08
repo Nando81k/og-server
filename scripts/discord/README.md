@@ -31,7 +31,18 @@ your server's icon → **Copy Server ID**. That's `GUILD_ID`.
 ## 3. Run it
 
 ```bash
-BOT_TOKEN=your-bot-token GUILD_ID=your-server-id node scripts/discord/setup-server.mjs
+node scripts/discord/setup-server.mjs
+```
+
+It asks for your server ID, then your bot token. The token stays hidden as you
+paste it, so it never appears on screen and never reaches your shell history —
+there is nothing in the command to accidentally paste a credential into.
+
+To run it unattended instead, set both in the environment and it skips the
+prompts entirely:
+
+```bash
+BOT_TOKEN=... GUILD_ID=... node scripts/discord/setup-server.mjs
 ```
 
 Requires Node 18+ (uses the built-in `fetch`). No dependencies to install.

@@ -87,6 +87,12 @@ const CSS = `
   #send[disabled]{background:#25332b;color:var(--muted);cursor:default}
   #msg{margin-top:9px;font-size:14px;color:var(--live);text-align:center;min-height:1.2em}
   .empty{color:var(--muted);padding:10px 2px;font-size:14.5px}
+
+  /* Standalone states (expired link, no open week). Not the pick form, so it
+     does not borrow the stake hero — a giant em dash reads as a glitch. */
+  .note{max-width:32ch;margin:0 auto;padding:22vh 20px 0}
+  .note h1{font:700 30px/1.1 'Barlow Condensed',sans-serif;margin:0 0 10px}
+  .note p{color:var(--muted);margin:0;font-size:16px}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
 
@@ -103,9 +109,7 @@ const shell = (title, body) => `<!doctype html>
 export function renderMessage(text) {
   return shell(
     'Pick’em',
-    `<div class="wrap"><div class="stake"><div class="stake-row">
-       <div class="stake-num">—</div><div class="stake-lab">${esc(text)}</div>
-     </div></div></div>`
+    `<div class="note"><h1>Nothing to pick here</h1><p>${esc(text)}</p></div>`
   );
 }
 

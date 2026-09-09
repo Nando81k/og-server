@@ -4,6 +4,11 @@ export async function upsertGames(db, season, week, games) {
       .prepare(
         `INSERT INTO games (id, season, week, kickoff, home, away, winner, voided)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         -- upsertGames owns schedule fields (kickoff); setResults owns result
+         -- fields (winner, voided). Updating only kickoff on conflict is
+         -- deliberate: the sync job re-runs upsertGames for the upcoming,
+         -- unplayed week, so a re-sync must never be able to discard a
+         -- winner already recorded by setResults.
          ON CONFLICT(id) DO UPDATE SET kickoff = excluded.kickoff`
       )
       .bind(g.id, season, week, g.kickoff, g.home, g.away, g.winner ?? null, g.voided ? 1 : 0)
@@ -29,19 +34,20 @@ export async function setResults(db, games) {
 }
 
 export async function savePicks(db, { userId, season, week, picks }) {
-  await db
-    .prepare(`DELETE FROM picks WHERE user_id = ? AND season = ? AND week = ?`)
-    .bind(userId, season, week)
-    .run();
-  for (const p of picks) {
-    await db
-      .prepare(
+  // DELETE-then-INSERT is issued as one db.batch() call so D1 runs it as a
+  // single transaction: a failure part-way through can't leave a user's week
+  // deleted but only partly rewritten.
+  const statements = [
+    db.prepare(`DELETE FROM picks WHERE user_id = ? AND season = ? AND week = ?`)
+      .bind(userId, season, week),
+    ...picks.map((p) =>
+      db.prepare(
         `INSERT INTO picks (user_id, game_id, season, week, team, confidence)
          VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .bind(userId, p.game_id, season, week, p.team, p.confidence)
-      .run();
-  }
+      ).bind(userId, p.game_id, season, week, p.team, p.confidence)
+    ),
+  ];
+  await db.batch(statements);
 }
 
 export async function getPicks(db, userId, season, week) {

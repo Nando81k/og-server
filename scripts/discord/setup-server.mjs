@@ -35,6 +35,14 @@
  */
 
 import { askVisible, askHidden } from './prompt.mjs';
+import { normalizeChannelName } from '../bot/lib.mjs';
+import {
+  TEXT,
+  VOICE,
+  SERVER_PLAN,
+  categoryDisplayName,
+  channelDisplayName,
+} from './channel-names.mjs';
 
 // Both values are prompted for when they aren't already in the environment.
 // Asking for the token keeps it out of shell history, and leaves nothing in the
@@ -173,10 +181,6 @@ async function orderRoles(roleIds) {
   return { ok: actual.join(' > ') === wanted.join(' > '), actual, wanted };
 }
 
-const TEXT = 0;
-const VOICE = 2;
-const FORUM = 15;
-
 async function main() {
   console.log('Reading existing roles + channels...');
   const [existingRoles, existingChannels] = await Promise.all([
@@ -208,46 +212,72 @@ async function main() {
 
   const order = await orderRoles(roleIds);
 
+  // Keyed on the normalized name so a channel is still recognised after it has
+  // been decorated with an emoji — otherwise a re-run would build a second copy
+  // of every channel alongside the originals.
   const categoryByName = new Map(
-    existingChannels.filter((c) => c.type === 4).map((c) => [c.name, c])
+    existingChannels.filter((c) => c.type === 4).map((c) => [normalizeChannelName(c.name), c])
   );
   const channelByKey = new Map(
     existingChannels
       .filter((c) => c.type !== 4)
-      .map((c) => [`${c.parent_id ?? ''}:${c.name}`, c])
+      .map((c) => [`${c.parent_id ?? ''}:${normalizeChannelName(c.name)}`, c])
   );
 
-  async function ensureCategory(name, overwrites) {
-    let cat = categoryByName.get(name);
+  let renamed = 0;
+
+  /** Bring an existing channel up to its display name, if it has drifted. */
+  async function renameIfNeeded(channel, wanted) {
+    if (channel.name === wanted) return channel;
+    try {
+      const updated = await discord('PATCH', `/channels/${channel.id}`, { name: wanted });
+      console.log(`Renamed: ${channel.name} -> ${wanted}`);
+      renamed += 1;
+      await sleep(300);
+      channel.name = updated?.name ?? wanted;
+    } catch (err) {
+      console.warn(`! Could not rename ${channel.name} to ${wanted}: ${err.message}`);
+    }
+    return channel;
+  }
+
+  async function ensureCategory(plain, overwrites) {
+    const wanted = categoryDisplayName(plain);
+    let cat = categoryByName.get(normalizeChannelName(plain));
     if (!cat) {
-      console.log(`Creating category: ${name}`);
+      console.log(`Creating category: ${wanted}`);
       cat = await discord('POST', `/guilds/${GUILD_ID}/channels`, {
-        name,
+        name: wanted,
         type: 4,
         permission_overwrites: overwrites ?? [],
       });
       await sleep(400);
-      categoryByName.set(name, cat);
+      categoryByName.set(normalizeChannelName(plain), cat);
+      return cat;
     }
-    return cat;
+    return renameIfNeeded(cat, wanted);
   }
 
   const channelIdByName = new Map();
 
   async function ensureChannel(def, parent, sectionOverwrites) {
-    const name = typeof def === 'string' ? def : def.name;
+    // `plain` stays the channel's identity — TOPICS is keyed by it, and so is
+    // channelIdByName. `wanted` is only what the sidebar shows.
+    const plain = typeof def === 'string' ? def : def.name;
     const type = typeof def === 'string' ? TEXT : def.type ?? TEXT;
     const nsfw = typeof def === 'string' ? false : !!def.nsfw;
-    const key = `${parent.id}:${name}`;
+    const wanted = channelDisplayName(plain, type);
+    const key = `${parent.id}:${normalizeChannelName(plain)}`;
     if (channelByKey.has(key)) {
-      console.log(`Channel exists, skipping: #${name}`);
       const existing = channelByKey.get(key);
-      channelIdByName.set(name, existing.id);
+      channelIdByName.set(plain, existing.id);
+      if (existing.name === wanted) console.log(`Channel exists, skipping: #${wanted}`);
+      else await renameIfNeeded(existing, wanted);
       return existing;
     }
-    console.log(`Creating channel: #${name} (${parent.name})`);
+    console.log(`Creating channel: #${wanted} (${parent.name})`);
     const chan = await discord('POST', `/guilds/${GUILD_ID}/channels`, {
-      name,
+      name: wanted,
       type,
       nsfw,
       parent_id: parent.id,
@@ -255,7 +285,7 @@ async function main() {
     });
     await sleep(400);
     channelByKey.set(key, chan);
-    channelIdByName.set(name, chan.id);
+    channelIdByName.set(plain, chan.id);
     return chan;
   }
 
@@ -264,76 +294,18 @@ async function main() {
   const afterHoursOverwrites = [denyView(everyoneId), allowView(roleIds['18+'])];
   const modOverwrites = [denyView(everyoneId), allowView(roleIds['Mod']), allowView(roleIds['OG'])];
 
-  const PLAN = [
-    { category: 'START HERE', channels: ['welcome-rules', 'onboarding', 'announcements'] },
-    {
-      category: 'GENERAL',
-      channels: [
-        'general-chat',
-        'sports-talk',
-        'pop-culture',
-        'deep-thoughts',
-        'highlights',
-        { name: 'General Voice', type: VOICE },
-      ],
-    },
-    { category: 'NYC', channels: ['irl-plans', 'bodega-tier-list', 'mta-complaints'] },
-    {
-      category: 'GAMES',
-      channels: [
-        'lfg',
-        '2k',
-        'cod',
-        'madden',
-        'fighting-games',
-        // Standing rooms /lfg points people at, one per game.
-        { name: '2K Voice', type: VOICE },
-        { name: 'CoD Voice', type: VOICE },
-        { name: 'Madden Voice', type: VOICE },
-        { name: 'Fighting Games Voice', type: VOICE },
-      ],
-    },
-    {
-      category: 'ANIME',
-      channels: [
-        'anime',
-        'currently-watching',
-        'manga',
-        'recommendations',
-        'gacha',
-        { name: 'Watch Party', type: VOICE },
-      ],
-    },
-    {
-      category: 'SEASON + TOURNAMENTS',
-      channels: ['season-leaderboard', 'pickem', 'brackets', 'game-of-the-month'],
-    },
-    {
-      category: 'FANTASY',
-      channels: [
-        { name: 'nfl-fantasy-forum', type: FORUM },
-        { name: 'nba-fantasy-forum', type: FORUM },
-        'standings',
-        'trade-court',
-        { name: 'Draft Night', type: VOICE },
-      ],
-    },
-    {
-      category: 'AFTER HOURS',
-      channels: [{ name: 'smoke-lounge', nsfw: true }],
-      overwrites: afterHoursOverwrites,
-    },
-    {
-      category: 'MOD',
-      channels: ['mod-chat', 'warn-log', 'invite-tracking'],
-      overwrites: modOverwrites,
-    },
-    {
-      category: 'OG',
-      channels: ['og-chat', 'og-plans', 'og-hall-of-fame', { name: 'OG Voice', type: VOICE }],
-      overwrites: ogOverwrites,
-    },
-  ];
+  // The tree lives in channel-names.mjs; the overwrites need role ids, so they
+  // are attached here.
+  const OVERWRITES = {
+    'AFTER HOURS': afterHoursOverwrites,
+    MOD: modOverwrites,
+    OG: ogOverwrites,
+  };
+  const PLAN = SERVER_PLAN.map((section) => ({
+    ...section,
+    overwrites: OVERWRITES[section.category],
+  }));
+
 
   for (const section of PLAN) {
     const cat = await ensureCategory(section.category, section.overwrites);
@@ -394,7 +366,7 @@ async function main() {
       console.warn(`! Could not set the topic on #${name}: ${err.message}`);
     }
   }
-  console.log(`\nChannel topics set: ${topicsSet}.`);
+  console.log(`\nChannel topics set: ${topicsSet}. Channels renamed: ${renamed}.`);
 
   try {
     await discord(

@@ -2,6 +2,7 @@ import * as djs from 'discord.js';
 import {
   GAME_ROLES, TEMP_PREFIX, tempChannelName, isTempChannel,
   shouldDelete, isDueForPromotion, clampSlots,
+  normalizeChannelName, isChannelNamed,
 } from './lib.mjs';
 
 const fails = [];
@@ -66,6 +67,22 @@ check('0 does not mean unlimited', clampSlots(0) === 2);
 check('over 99 is clamped', clampSlots(500) === 99);
 check('garbage falls back to 5', clampSlots('abc') === 5);
 check('rounds a decimal', clampSlots(4.6) === 5);
+
+console.log('\n--- channel name matching ---');
+check('strips a leading emoji and bar', normalizeChannelName('\ud83c\udfc0\u25032k') === '2k');
+check('strips an emoji and space', normalizeChannelName('\ud83d\udd0a 2K Voice') === '2k-voice');
+check('leaves a plain slug alone', normalizeChannelName('2k') === '2k');
+check('lowercases and hyphenates', normalizeChannelName('2K Voice') === '2k-voice');
+check('collapses runs of separators', normalizeChannelName('\ud83d\udd0a\u2503\u2503 2K   Voice') === '2k-voice');
+check('trims trailing decoration', normalizeChannelName('2K Voice \ud83c\udfae') === '2k-voice');
+check('survives an empty name', normalizeChannelName('') === '');
+check('survives a missing name', normalizeChannelName(undefined) === '');
+check('decorated room matches the plain one',
+  isChannelNamed({ name: '\ud83d\udd0a 2K Voice' }, '2K Voice'));
+check('a different room still does not match',
+  !isChannelNamed({ name: '\ud83d\udd0a CoD Voice' }, '2K Voice'));
+check('near-miss names do not collide',
+  !isChannelNamed({ name: '2K Voice Chat' }, '2K Voice'));
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

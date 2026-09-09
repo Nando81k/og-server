@@ -7,7 +7,7 @@
   "scripts": {
     "setup": "node scripts/discord/setup-server.mjs",
     "bot": "node scripts/bot/index.mjs",
-    "test": "for f in scripts/bot/lib.test.mjs worker/src/*.test.mjs; do node $f || exit 1; done",
+    "test": "for f in scripts/bot/lib.test.mjs scripts/discord/*.test.mjs worker/src/*.test.mjs; do node $f || exit 1; done",
     "register": "node scripts/discord/register-commands.mjs"
   },
   "engines": {

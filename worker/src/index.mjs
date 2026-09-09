@@ -14,7 +14,13 @@
 
 import { isFromDiscord } from './verify.mjs';
 import { createApi } from './rest.mjs';
-import { GAME_ROLES, voiceRoomFor, isDueForPromotion, clampSlots } from '../../scripts/bot/lib.mjs';
+import {
+  GAME_ROLES,
+  voiceRoomFor,
+  isDueForPromotion,
+  clampSlots,
+  isChannelNamed,
+} from '../../scripts/bot/lib.mjs';
 import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
 import { validateSubmission, lockTime } from './validate.mjs';
@@ -55,7 +61,9 @@ export async function handleLfg(interaction, env, api) {
   const role = roles.find((r) => r.name === roleName);
   // Match on type as well as name: a text channel sharing the room's name would
   // otherwise be linked instead, and `<#id>` gives no hint that it went wrong.
-  const room = channels.find((c) => c.name === roomName && c.type === GUILD_VOICE);
+  // The name comparison ignores emoji and separators so decorating the channel
+  // list does not break the jump link.
+  const room = channels.find((c) => c.type === GUILD_VOICE && isChannelNamed(c, roomName));
   const who = interaction.member?.user?.id ?? interaction.user?.id;
 
   const ping = role ? `<@&${role.id}>` : roleName;

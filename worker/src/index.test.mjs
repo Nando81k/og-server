@@ -64,6 +64,14 @@ console.log('--- /lfg ---');
     res.content.includes('No **Madden Voice** channel exists yet'));
 }
 {
+  // Decorating the channel list must not break the jump link.
+  const api = fakeApi();
+  api.channels = async () => [{ id: '950', name: '🔊 2K Voice', type: 2 }];
+  const res = await handleLfg({ data: { options: [{ name: 'game', value: '2k' }] },
+    member: { user: { id: '5' } } }, env, api);
+  check('an emoji-decorated room still resolves', res.content.includes('<#950>'));
+}
+{
   // The failure that produced the original #unknown: no room, and the old code
   // emitted a bare name that read as a dead link.
   const api = fakeApi();

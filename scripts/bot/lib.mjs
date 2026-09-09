@@ -31,6 +31,24 @@ export function voiceRoomFor(game) {
   return name;
 }
 
+/**
+ * Channel names carry decoration — emoji, separator bars, capitals — and that
+ * decoration changes whenever someone tidies the server. Comparing normalized
+ * names means "🔊 2K Voice" and "2K Voice" are the same room, so renaming a
+ * channel can never quietly break the /lfg jump link again.
+ */
+export function normalizeChannelName(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** True when a Discord channel is the room we mean, decoration aside. */
+export function isChannelNamed(channel, wanted) {
+  return normalizeChannelName(channel?.name) === normalizeChannelName(wanted);
+}
+
 /** Marks a voice channel as ours, so orphans can be swept after a restart. */
 export const TEMP_PREFIX = 'LFG · ';
 

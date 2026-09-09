@@ -25,7 +25,12 @@ export async function signPickToken(claims, secret) {
 export async function verifyPickToken(token, secret, now = Date.now()) {
   try {
     if (typeof token !== 'string') return null;
-    const [payload, sig] = token.split('.');
+    const parts = token.split('.');
+    // Exactly two segments — a token with a stray extra "." (e.g. an
+    // attacker-appended `</script><script>...` payload) must be rejected
+    // outright, not silently truncated to its first two segments.
+    if (parts.length !== 2) return null;
+    const [payload, sig] = parts;
     if (!payload || !sig) return null;
     const valid = await crypto.subtle.verify(
       'HMAC', await key(secret), unb64url(sig), enc.encode(payload)

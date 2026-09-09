@@ -93,10 +93,23 @@ export default {
     // POST-only gate or the Ed25519 signature check below.
     const url = new URL(request.url);
     if (url.pathname === '/picks') {
-      const claims = await verifyPickToken(
-        request.method === 'POST' ? (await request.clone().json()).token : url.searchParams.get('t'),
-        env.PICKS_SECRET
-      );
+      // A public, unauthenticated endpoint: a malformed body (non-JSON, or
+      // literal JSON null) must come back as a 400, not crash into a 500 —
+      // mirroring how the signed Discord path below handles bad JSON.
+      let submitted = null;
+      if (request.method === 'POST') {
+        try {
+          submitted = await request.json();
+        } catch {
+          return json({ error: 'That submission was not readable.' }, 400);
+        }
+        if (!submitted || typeof submitted !== 'object') {
+          return json({ error: 'That submission was not readable.' }, 400);
+        }
+      }
+
+      const rawToken = request.method === 'POST' ? submitted.token : url.searchParams.get('t');
+      const claims = await verifyPickToken(rawToken, env.PICKS_SECRET);
       if (!claims) {
         return new Response(renderMessage('That link has expired — run /picks again.'), {
           status: 401, headers: { 'Content-Type': 'text/html' },
@@ -106,13 +119,18 @@ export default {
 
       if (request.method === 'GET') {
         const picks = await getPicks(env.DB, claims.userId, claims.season, claims.week);
+        // Defence in depth: never forward the raw external string into the
+        // page. Rebuild the token from exactly the two dot-separated
+        // segments verifyPickToken just accepted, so anything a caller
+        // appended past the second "." can never reach renderForm even if
+        // the verifier's own segment-count guard ever regressed.
+        const safeToken = rawToken.split('.').slice(0, 2).join('.');
         return new Response(
-          renderForm({ games, picks, token: url.searchParams.get('t'), lockAt: lockTime(games) }),
+          renderForm({ games, picks, token: safeToken, lockAt: lockTime(games) }),
           { headers: { 'Content-Type': 'text/html' } }
         );
       }
 
-      const submitted = await request.json();
       const result = validateSubmission({ games, submission: submitted.picks, now: Date.now() });
       if (!result.ok) return json({ error: result.error }, 400);
       await savePicks(env.DB, {

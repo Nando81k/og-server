@@ -64,7 +64,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   });
   const res = await fetch(location.pathname + location.search, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: ${JSON.stringify(token)}, picks }),
+    body: JSON.stringify({ token: ${JSON.stringify(token).replace(/</g, '\\u003c')}, picks }),
   });
   const out = await res.json().catch(() => ({ error: 'Something went wrong.' }));
   document.getElementById('msg').textContent = res.ok ? 'Saved. You can change these until lock.' : out.error;

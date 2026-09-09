@@ -61,5 +61,14 @@ check('rejects exp absent', (await verifyPickToken(missingExpToken, secret, now)
 const nullExpToken = await makeTokenWithBadExp('{"userId":"555","season":2026,"week":1,"exp":null}');
 check('rejects exp as null', (await verifyPickToken(nullExpToken, secret, now)) === null);
 
+// A third segment must reject the whole token, not be silently dropped —
+// otherwise an attacker can append arbitrary content (e.g. </script><script>)
+// after a valid token and have it treated as valid by callers that trust the
+// verified value still equals the raw string they were handed.
+check('rejects a token with a third segment appended',
+  (await verifyPickToken(`${token}.anything`, secret, now)) === null);
+check('rejects a token with four segments',
+  (await verifyPickToken(`${token}.a.b`, secret, now)) === null);
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

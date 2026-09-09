@@ -25,5 +25,21 @@ check('preselects an existing pick', /value="KC"[^>]*checked/.test(pre) || pre.i
 check('escapes anything from the outside', !renderMessage('<script>x</script>').includes('<script>x'));
 check('the message page is a document', renderMessage('gone').startsWith('<!doctype html>'));
 
+// A token that carries a literal </script><script>...</script> must never be
+// able to break out of the page's own inline <script> block — the whole
+// document must still have exactly one </script> (the legitimate one).
+const xssToken = 'abc.def</script><script>alert(document.domain)</script>';
+const xssHtml = renderForm({ games, picks: [], token: xssToken, lockAt: Date.parse(games[0].kickoff) });
+const closeTagCount = (xssHtml.match(/<\/script>/g) || []).length;
+check('a token containing </script> cannot break out of the script tag', closeTagCount === 1);
+
+// A normal (non-malicious) token must still round-trip exactly into the
+// embedded JSON, escaping notwithstanding.
+const normalToken = 'YWJj.ZGVm-_123';
+const normalHtml = renderForm({ games, picks: [], token: normalToken, lockAt: Date.parse(games[0].kickoff) });
+const embedded = normalHtml.match(/token:\s*("(?:[^"\\]|\\.)*")/);
+check('a normal token round-trips exactly into the embedded JSON',
+  !!embedded && JSON.parse(embedded[1]) === normalToken);
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

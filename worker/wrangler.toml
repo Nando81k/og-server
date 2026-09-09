@@ -11,3 +11,11 @@ crons = ["0 9 * * *"]
 [vars]
 GUILD_ID = ""
 MEMBER_AFTER_DAYS = "7"
+
+# database_id comes from running `wrangler d1 create og-pickem` (not run here —
+# needs Cloudflare credentials this task doesn't have). Once created, apply the
+# schema with `wrangler d1 execute og-pickem --remote --file=./schema.sql`.
+[[d1_databases]]
+binding = "DB"
+database_name = "og-pickem"
+database_id = "REPLACE_ME"

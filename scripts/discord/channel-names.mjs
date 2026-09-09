@@ -21,7 +21,7 @@ export const CATEGORY_EMOJI = {
   GAMES: '🎮',
   ANIME: '📺',
   'SEASON + TOURNAMENTS': '🏆',
-  FANTASY: '🏆',
+  FANTASY: '🐐',
   'AFTER HOURS': '🔞',
   MOD: '🛡️',
   OG: '🔒',

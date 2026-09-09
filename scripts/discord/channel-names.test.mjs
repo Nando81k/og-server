@@ -67,6 +67,13 @@ const drifted = channels.filter(
 check('decorating a name does not change how it normalizes' + (drifted.length ? ` (${drifted.map((d) => d.name)})` : ''),
   drifted.length === 0);
 
+console.log('\n--- categories stay distinguishable ---');
+// Two categories sharing an emoji defeats the point of having one.
+const catEmoji = categories.map((c) => CATEGORY_EMOJI[c]);
+const dupeCats = catEmoji.filter((e, i) => catEmoji.indexOf(e) !== i);
+check('no two categories share an emoji' + (dupeCats.length ? ` (${[...new Set(dupeCats)]})` : ''),
+  dupeCats.length === 0);
+
 console.log('\n--- no collisions ---');
 const seen = new Map();
 const collisions = [];

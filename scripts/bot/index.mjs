@@ -48,7 +48,9 @@ const PROMOTE_MS = 6 * 60 * 60 * 1000;
 
 // Prompted for when absent, same as the setup script: nothing to paste a
 // credential into by mistake, and nothing landing in shell history.
-const interactive = process.stdin.isTTY && process.stdout.isTTY;
+// stdin alone decides this: stdout is piped under `npm run`, but the
+// keyboard is still there and prompts go to stderr.
+const interactive = Boolean(process.stdin.isTTY);
 
 let GUILD_ID = process.env.GUILD_ID;
 if (!GUILD_ID && interactive) {

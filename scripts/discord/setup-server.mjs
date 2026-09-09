@@ -40,7 +40,9 @@ import { askVisible, askHidden } from './prompt.mjs';
 // Asking for the token keeps it out of shell history, and leaves nothing in the
 // command someone could paste it into by mistake. The environment variables are
 // still honored so a non-interactive run works unchanged.
-const interactive = process.stdin.isTTY && process.stdout.isTTY;
+// stdin alone decides this: stdout is piped under `npm run`, but the
+// keyboard is still there and prompts go to stderr.
+const interactive = Boolean(process.stdin.isTTY);
 
 let GUILD_ID = process.env.GUILD_ID;
 if (!GUILD_ID && interactive) {

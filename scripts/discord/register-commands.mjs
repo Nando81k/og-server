@@ -10,7 +10,9 @@
 
 import { askVisible, askHidden } from './prompt.mjs';
 
-const interactive = process.stdin.isTTY && process.stdout.isTTY;
+// stdin alone decides this: stdout is piped under `npm run`, but the
+// keyboard is still there and prompts go to stderr.
+const interactive = Boolean(process.stdin.isTTY);
 
 let APP_ID = process.env.APPLICATION_ID;
 if (!APP_ID && interactive) APP_ID = await askVisible('Application ID: ');

@@ -13,6 +13,10 @@
 import { isFromDiscord } from './verify.mjs';
 import { createApi } from './rest.mjs';
 import { GAME_ROLES, voiceRoomFor, isDueForPromotion, clampSlots } from '../../scripts/bot/lib.mjs';
+import { verifyPickToken, signPickToken } from './token.mjs';
+import { renderForm, renderMessage } from './form.mjs';
+import { validateSubmission, lockTime } from './validate.mjs';
+import { getGames, getPicks, savePicks, openWeek } from './db.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -84,6 +88,39 @@ export async function runPromotions(env, api, now = Date.now()) {
 
 export default {
   async fetch(request, env) {
+    // Handled before anything Discord-specific: Discord never calls /picks —
+    // a browser does, with no signature — so this must not sit behind the
+    // POST-only gate or the Ed25519 signature check below.
+    const url = new URL(request.url);
+    if (url.pathname === '/picks') {
+      const claims = await verifyPickToken(
+        request.method === 'POST' ? (await request.clone().json()).token : url.searchParams.get('t'),
+        env.PICKS_SECRET
+      );
+      if (!claims) {
+        return new Response(renderMessage('That link has expired — run /picks again.'), {
+          status: 401, headers: { 'Content-Type': 'text/html' },
+        });
+      }
+      const games = await getGames(env.DB, claims.season, claims.week);
+
+      if (request.method === 'GET') {
+        const picks = await getPicks(env.DB, claims.userId, claims.season, claims.week);
+        return new Response(
+          renderForm({ games, picks, token: url.searchParams.get('t'), lockAt: lockTime(games) }),
+          { headers: { 'Content-Type': 'text/html' } }
+        );
+      }
+
+      const submitted = await request.json();
+      const result = validateSubmission({ games, submission: submitted.picks, now: Date.now() });
+      if (!result.ok) return json({ error: result.error }, 400);
+      await savePicks(env.DB, {
+        userId: claims.userId, season: claims.season, week: claims.week, picks: result.picks,
+      });
+      return json({ ok: true });
+    }
+
     if (request.method !== 'POST') {
       return new Response('This endpoint is for Discord interactions.', { status: 405 });
     }
@@ -116,6 +153,23 @@ export default {
         console.error(err);
         return json({ type: REPLY, data: { content: `Could not start that: ${err.message}`, flags: 64 } });
       }
+    }
+
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'picks') {
+      const userId = interaction.member?.user?.id ?? interaction.user?.id;
+      const season = Number(env.SEASON);
+      const week = await openWeek(env.DB, season);
+      if (!week) {
+        return json({ type: REPLY, data: { content: 'No week is open right now.', flags: 64 } });
+      }
+      const games = await getGames(env.DB, season, week);
+      const exp = lockTime(games);
+      if (Date.now() >= exp) {
+        return json({ type: REPLY, data: { content: `Week ${week} is locked.`, flags: 64 } });
+      }
+      const token = await signPickToken({ userId, season, week, exp }, env.PICKS_SECRET);
+      const link = `${url.origin}/picks?t=${token}`;
+      return json({ type: REPLY, data: { content: `Your Week ${week} picks: ${link}`, flags: 64 } });
     }
 
     return json({ type: REPLY, data: { content: 'Not something I handle.', flags: 64 } });

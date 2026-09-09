@@ -53,6 +53,7 @@ const commands = [
       },
     ],
   },
+  { name: 'picks', description: 'Get your link to this week’s pick’em', options: [] },
 ];
 
 const res = await fetch(

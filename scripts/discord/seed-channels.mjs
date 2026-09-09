@@ -23,7 +23,7 @@
 
 import { askVisible, askHidden } from './prompt.mjs';
 import { normalizeChannelName } from '../bot/lib.mjs';
-import { GUIDES, ALREADY_PINNED, renderGuide } from './channel-guides.mjs';
+import { GUIDES, FORUM_GUIDELINES, ALREADY_PINNED, renderGuide } from './channel-guides.mjs';
 
 const DRY_RUN = process.env.DRY_RUN === '1';
 const interactive = Boolean(process.stdin.isTTY);
@@ -83,10 +83,14 @@ const channels = await discord('GET', `/guilds/${GUILD_ID}/channels`);
 // Guides are keyed by plain slug; the live channels carry emoji. Match on the
 // normalized name so decoration never orphans a guide.
 const idBySlug = new Map();
-for (const [slug] of Object.entries(GUIDES)) {
+const channelBySlug = new Map();
+for (const slug of [...Object.keys(GUIDES), ...Object.keys(FORUM_GUIDELINES)]) {
   const wanted = normalizeChannelName(slug);
   const hit = channels.find((c) => normalizeChannelName(c.name) === wanted);
-  if (hit) idBySlug.set(slug, hit.id);
+  if (hit) {
+    idBySlug.set(slug, hit.id);
+    channelBySlug.set(slug, hit);
+  }
 }
 // Cross-references may point at channels that have no guide of their own.
 for (const c of channels) idBySlug.set(normalizeChannelName(c.name), c.id);
@@ -155,8 +159,34 @@ for (const [slug, template] of Object.entries(GUIDES)) {
   posted += 1;
 }
 
+// Forums take their explainer as Guidelines rather than a pinned message.
+let guidelines = 0;
+for (const [slug, template] of Object.entries(FORUM_GUIDELINES)) {
+  const channel = channelBySlug.get(slug);
+  if (!channel) {
+    console.warn(`! No channel found for #${slug} — skipping.`);
+    missing += 1;
+    continue;
+  }
+
+  const topic = renderGuide(template, idBySlug);
+  if (channel.topic === topic) {
+    console.log(`Already current: #${slug} guidelines`);
+    skipped += 1;
+    continue;
+  }
+
+  console.log(`${DRY_RUN ? '[dry run] ' : ''}Setting guidelines on #${slug}`);
+  if (!DRY_RUN) {
+    await discord('PATCH', `/channels/${channel.id}`, { topic });
+    await sleep(400);
+  }
+  guidelines += 1;
+}
+
 console.log(
   `\n${DRY_RUN ? '[dry run] ' : ''}Posted ${posted}, updated ${updated}, ` +
-    `left alone ${skipped}${missing ? `, no channel for ${missing}` : ''}.`
+    `guidelines set ${guidelines}, left alone ${skipped}` +
+    `${missing ? `, no channel for ${missing}` : ''}.`
 );
 if (DRY_RUN) console.log('Nothing was changed. Re-run without DRY_RUN=1 to apply.');

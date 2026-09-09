@@ -1,4 +1,6 @@
-import { GUIDES, ALREADY_PINNED, referencedSlugs, renderGuide } from './channel-guides.mjs';
+import {
+  GUIDES, FORUM_GUIDELINES, ALREADY_PINNED, referencedSlugs, renderGuide,
+} from './channel-guides.mjs';
 import { planChannels, VOICE, FORUM } from './channel-names.mjs';
 
 const fails = [];
@@ -36,16 +38,34 @@ const doubled = ALREADY_PINNED.filter((s) => s in GUIDES);
 check('nothing is both hand-pinned and generated' + (doubled.length ? ` (${doubled})` : ''),
   doubled.length === 0);
 
+console.log('\n--- forum guidelines ---');
+const forums = channels.filter((c) => c.type === FORUM).map((c) => c.name);
+const uncoveredForums = forums.filter((s) => !(s in FORUM_GUIDELINES));
+check(`all ${forums.length} forums have guidelines` + (uncoveredForums.length ? ` (missing: ${uncoveredForums})` : ''),
+  uncoveredForums.length === 0);
+const notAForum = Object.keys(FORUM_GUIDELINES).filter((s) => bySlug.get(s)?.type !== FORUM);
+check('no guidelines aimed at a non-forum channel' + (notAForum.length ? ` (${notAForum})` : ''),
+  notAForum.length === 0);
+const bothWays = Object.keys(FORUM_GUIDELINES).filter((s) => s in GUIDES);
+check('nothing has both a pinned guide and guidelines', bothWays.length === 0);
+// A forum topic allows 4096 characters, four times a text channel's limit.
+const longGuidelines = Object.entries(FORUM_GUIDELINES).filter(([, t]) => [...t].length > 4000);
+check('guidelines stay under the 4096 character forum limit' +
+  (longGuidelines.length ? ` (${longGuidelines.map((g) => g[0])})` : ''), longGuidelines.length === 0);
+check('guidelines are meaningfully longer than the one-line topic they replace',
+  Object.values(FORUM_GUIDELINES).every((t) => t.length > 200));
+
 console.log('\n--- cross-references resolve ---');
 const badRefs = [];
-for (const [slug, text] of Object.entries(GUIDES)) {
+for (const [slug, text] of Object.entries({ ...GUIDES, ...FORUM_GUIDELINES })) {
   for (const ref of referencedSlugs(text)) {
     if (!slugs.has(ref)) badRefs.push(`${slug} -> #${ref}`);
   }
 }
 check('every {#slug} points at a real channel' + (badRefs.length ? ` (${badRefs})` : ''),
   badRefs.length === 0);
-const selfRefs = Object.entries(GUIDES).filter(([slug, t]) => referencedSlugs(t).includes(slug));
+const selfRefs = Object.entries({ ...GUIDES, ...FORUM_GUIDELINES })
+  .filter(([slug, t]) => referencedSlugs(t).includes(slug));
 check('no guide links to its own channel' + (selfRefs.length ? ` (${selfRefs.map((s) => s[0])})` : ''),
   selfRefs.length === 0);
 

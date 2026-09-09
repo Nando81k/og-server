@@ -186,6 +186,45 @@ Ideas, events and decisions while they're still half-formed. Once something's re
 Also where you get to say "should we even do this" without it becoming a whole debate.`,
 };
 
+/**
+ * Forum channels can't hold a pinned message the way a text channel can, but
+ * Discord shows their Guidelines at the top when you open one — the same job.
+ * Guidelines are the channel's `topic`, which allows 4096 characters on a forum
+ * against 1024 on a text channel, so these can be fuller than a topic line.
+ */
+export const FORUM_GUIDELINES = {
+  'nfl-fantasy-forum': `**NFL fantasy — one thread per thing**
+
+This is a forum, not a chat. Every trade, waiver claim, injury scare and grievance gets its own post, so a Tuesday argument doesn't bury a Thursday one.
+
+**Naming a post**
+Put the actual subject in the title. "Trade: my Kamara for your Hall" beats "thoughts?" — people scan titles, which is the entire point of a forum.
+
+**What goes where**
+— Proposed trades go to {#trade-court} first, where the server votes fair / collusion / robbery over 24 hours
+— Standings and the weekly recap live in {#standings}
+— NFL talk that isn't about our league belongs in {#sports-talk}
+
+**House rules**
+Collusion gets a trade reversed, not a debate. Set your lineup — a dead team ruins someone else's week as much as your own. Last place wears the punishment role until the next draft.
+
+Trash talk is expected. Keep it about the football.`,
+
+  'nba-fantasy-forum': `**NBA fantasy — one thread per thing**
+
+Same shape as the NFL forum: one post per trade, waiver, or complaint, titled so people can tell whether to open it. "Trade: Sengun for Giddey" tells them. "yo" does not.
+
+**What's different here**
+Basketball is a games-played game. Streaming, rest days and back-to-backs decide more weeks than talent does, so schedule talk is on-topic in a way it never is in football.
+
+**What goes where**
+— Proposed trades go to {#trade-court} for the same 24 hour vote
+— Standings and the weekly recap live in {#standings}
+— Knicks and Nets suffering belongs in {#sports-talk}
+
+Punishment role for last place applies here too. Set your lineup.`,
+};
+
 /** Channels whose pinned post was written by hand and must not be touched. */
 export const ALREADY_PINNED = [
   'welcome-rules',

@@ -1,5 +1,4 @@
 export function scoreWeek({ games, picks }) {
-  const byId = new Map(games.map((g) => [g.id, g]));
   let points = 0;
   let correct = 0;
   let possible = 0;
@@ -13,8 +12,6 @@ export function scoreWeek({ games, picks }) {
       correct += 1;
     }
   }
-  // A pick naming a game outside this week scores nothing; byId guards reads.
-  void byId;
   return { points, correct, possible };
 }
 

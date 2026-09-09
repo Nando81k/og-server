@@ -18,11 +18,12 @@ import { GAME_ROLES, voiceRoomFor, isDueForPromotion, clampSlots } from '../../s
 import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
 import { validateSubmission, lockTime } from './validate.mjs';
-import { getGames, getPicks, savePicks, openWeek } from './db.mjs';
+import {
+  getGames, getPicks, savePicks, openWeek,
+  upsertGames as dbUpsert, setResults as dbSetResults, allPicks as dbAllPicks,
+} from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
-import { upsertGames as dbUpsert, setResults as dbSetResults, getGames as dbGetGames,
-         openWeek as dbOpenWeek, allPicks as dbAllPicks } from './db.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -98,14 +99,18 @@ export async function runWeekly(env, api, deps = {}) {
     now = Date.now(),
     fetchWeek = espnFetchWeek,
     fetchCurrentWeek = espnFetchCurrentWeek,
-    getGames = dbGetGames,
     setResults = dbSetResults,
     upsertGames = dbUpsert,
-    openWeek = dbOpenWeek,
     allPicks = dbAllPicks,
   } = deps;
+  // getGames and openWeek are also imported plainly for use in fetch() below,
+  // so their overridable-for-testing default can't be spelled as a
+  // same-named destructuring default (`getGames = getGames` throws — the
+  // local binding shadows the module import before it's initialized).
+  const getGames_ = deps.getGames ?? getGames;
+  const openWeek_ = deps.openWeek ?? openWeek;
 
-  const week = await openWeek(env.DB, season);
+  const week = await openWeek_(env.DB, season);
   if (!week) {
     // openWeek is null with an empty games table on day one, before anything
     // has ever been seeded — and, defensively, if a prior run scored the
@@ -133,22 +138,31 @@ export async function runWeekly(env, api, deps = {}) {
     return { scored: null, synced: null };
   }
 
+  // An empty slate means "ESPN has nothing for this week yet" — ask again
+  // next run. It must never be read as "every game is done": [].every() is
+  // vacuously true, and without this guard the completeness check below
+  // would treat a blank response as a finished week and void every stored
+  // game in it.
+  if (fresh.games.length === 0) return { scored: null, synced: null };
+
   // Only score a week where every game has finished. A week is all or nothing.
   if (!fresh.games.every((g) => g.completed)) return { scored: null, synced: null };
 
   // A game postponed out of the week disappears from the feed. The spec voids
   // it rather than renumbering everyone's confidence after the fact.
-  const stored = await getGames(env.DB, season, week);
+  const stored = await getGames_(env.DB, season, week);
   const live = new Set(fresh.games.map((g) => g.id));
   const dropped = stored.filter((g) => !live.has(g.id)).map((g) => ({ ...g, winner: null, voided: true }));
-  await setResults(env.DB, [...fresh.games, ...dropped]);
+  await setResults(env.DB, season, week, [...fresh.games, ...dropped]);
   // Score every week of the season, not just this one: the posted table is
   // the season standings, and recomputing from stored rows is what makes a
   // second run of this job produce identical numbers.
   const rows = [];
+  let seasonWeeks = 0;
   for (let w = 1; w <= week; w += 1) {
-    const weekGames = await getGames(env.DB, season, w);
+    const weekGames = await getGames_(env.DB, season, w);
     if (weekGames.length === 0) continue;
+    seasonWeeks += 1;
     const weekPicks = await allPicks(env.DB, season, w);
     const byUser = new Map();
     for (const p of weekPicks) {
@@ -162,9 +176,16 @@ export async function runWeekly(env, api, deps = {}) {
   }
 
   const table = buildStandings(rows);
-  const everyWeek = table.filter((r) => r.weeks === week).map((r) => `<@${r.userId}>`);
+  // "Entered every week" means every week the season has actually had games
+  // for, not "the current week number" — a season bootstrapped mid-way
+  // (e.g. starting at week 3) never reaches r.weeks === week otherwise.
+  const everyWeek = table.filter((r) => r.weeks === seasonWeeks).map((r) => `<@${r.userId}>`);
+  // buildStandings collapses per-week rows into season totals, so the week
+  // just scored is looked up from the `rows` this run already built rather
+  // than changing buildStandings's shape.
+  const weekPoints = new Map(rows.filter((r) => r.week === week).map((r) => [r.userId, r.points]));
   const lines = table
-    .map((r, i) => `${i + 1}. <@${r.userId}> — ${r.points}`)
+    .map((r, i) => `${i + 1}. <@${r.userId}> — ${r.points} (+${weekPoints.get(r.userId) ?? 0} this week)`)
     .join('\n');
 
   await api.postMessage(
@@ -190,6 +211,13 @@ export default {
     // POST-only gate or the Ed25519 signature check below.
     const url = new URL(request.url);
     if (url.pathname === '/picks') {
+      // Explicit allowlist: `submitted` is only ever populated for POST, so
+      // any other method (PUT, DELETE, …) reaching the submission handling
+      // below would dereference `submitted.picks` while `submitted` is still
+      // null and crash to a 500 instead of a clean 405.
+      if (request.method !== 'GET' && request.method !== 'POST') {
+        return new Response('This endpoint only accepts GET and POST.', { status: 405 });
+      }
       // A public, unauthenticated endpoint: a malformed body (non-JSON, or
       // literal JSON null) must come back as a 400, not crash into a 500 —
       // mirroring how the signed Discord path below handles bad JSON.

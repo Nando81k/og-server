@@ -24,11 +24,14 @@ export async function getGames(db, season, week) {
   return (results ?? []).map((r) => ({ ...r, voided: r.voided === 1, completed: r.winner !== null || r.voided === 1 }));
 }
 
-export async function setResults(db, games) {
+export async function setResults(db, season, week, games) {
+  // Scoped to season/week: a game postponed out of a week and voided there
+  // must never have its winner rewritten by a later week's feed reusing the
+  // same ESPN event id against a row still stamped with the old week.
   for (const g of games) {
     await db
-      .prepare(`UPDATE games SET winner = ?, voided = ? WHERE id = ?`)
-      .bind(g.winner ?? null, g.voided ? 1 : 0, g.id)
+      .prepare(`UPDATE games SET winner = ?, voided = ? WHERE id = ? AND season = ? AND week = ?`)
+      .bind(g.winner ?? null, g.voided ? 1 : 0, g.id, season, week)
       .run();
   }
 }

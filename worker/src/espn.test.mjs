@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { parseScoreboard, fetchCurrentWeek } from './espn.mjs';
+import { parseScoreboard, fetchWeek, fetchCurrentWeek } from './espn.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -87,6 +87,34 @@ const empty = parseScoreboard({
 });
 check('empty events returns valid object',
   empty.season === 2026 && empty.week === 1 && empty.games.length === 0);
+
+// fetchWeek: this is the query-string construction that finding 1 (an empty
+// slate silently voiding a whole week) hinges on — it's what tells ESPN
+// which season/week to return, so a malformed query here is indistinguishable
+// from an empty week at the call site.
+{
+  let requestedUrl;
+  const fetchImpl = async (url) => {
+    requestedUrl = url;
+    return { ok: true, json: async () => load('week-complete.json') };
+  };
+  await fetchWeek({ season: 2026, week: 4, fetchImpl });
+  const parsed = new URL(requestedUrl);
+  check('fetchWeek requests the scoreboard endpoint',
+    parsed.origin + parsed.pathname === 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
+  check('fetchWeek requests the right season as dates', parsed.searchParams.get('dates') === '2026');
+  check('fetchWeek requests regular season (seasontype=2)', parsed.searchParams.get('seasontype') === '2');
+  check('fetchWeek requests the right week', parsed.searchParams.get('week') === '4');
+}
+{
+  const fetchImpl = async () => ({ ok: false, status: 503 });
+  try {
+    await fetchWeek({ season: 2026, week: 4, fetchImpl });
+    check('fetchWeek throws on a non-ok response', false);
+  } catch (e) {
+    check('fetchWeek throws on a non-ok response', e.message.includes('503'));
+  }
+}
 
 // fetchCurrentWeek: same parsing, but no season/week query params — it asks
 // ESPN for whatever week is current rather than a specified one.

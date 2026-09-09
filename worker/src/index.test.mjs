@@ -101,5 +101,14 @@ console.log('\n--- the endpoint ---');
   check('signed junk is a 400, not a crash', j.status === 400);
 }
 
+console.log('\n--- /picks method allowlist ---');
+{
+  // No token needed: the method check happens before token verification, so
+  // an unsupported method must come back as a clean 405, never a 500 from
+  // dereferencing `submitted.picks` while `submitted` is still null.
+  const res = await worker.fetch(new Request('https://x/picks?t=whatever', { method: 'PUT' }), env);
+  check('a non-GET, non-POST request to /picks is a 405, not a crash', res.status === 405);
+}
+
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

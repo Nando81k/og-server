@@ -25,7 +25,7 @@ const deps = {
     games: [{ id: '1', kickoff: '2026-09-13T17:00Z', home: 'KC', away: 'BAL', winner: 'KC', completed: true, voided: false }],
   }),
   getGames: async () => state.games.map((g) => ({ ...g, voided: false, completed: g.winner !== null })),
-  setResults: async (_db, games) => { state.games[0].winner = games[0].winner; },
+  setResults: async (_db, _season, _week, games) => { state.games[0].winner = games[0].winner; },
   allPicks: async () => state.picks.map((p) => ({ ...p, userId: p.user_id })),
   upsertGames: async () => {},
   openWeek: async () => 1,
@@ -80,6 +80,66 @@ posted.length = 0;
   check('bootstrap failure: scores nothing', out4.scored === null);
   check('bootstrap failure: syncs nothing', out4.synced === null);
   check('bootstrap failure: posts nothing', posted.length === 0);
+}
+
+// Finding 1: an empty ESPN slate ([].every() is vacuously true) must never
+// be read as "the week is complete, void everything". It must leave stored
+// games untouched, post nothing, and ask again next run.
+{
+  posted.length = 0;
+  const before = JSON.parse(JSON.stringify(state.games));
+  let setResultsCalled = false;
+  const emptySlateDeps = {
+    ...deps,
+    fetchWeek: async ({ week }) => ({ season: 2026, week, games: [] }),
+    setResults: async (...args) => { setResultsCalled = true; return deps.setResults(...args); },
+  };
+  const outEmpty = await runWeekly(env, api, emptySlateDeps);
+  check('empty slate: scores nothing', outEmpty.scored === null);
+  check('empty slate: syncs nothing', outEmpty.synced === null);
+  check('empty slate: never calls setResults', setResultsCalled === false);
+  check('empty slate: stored games are untouched', JSON.stringify(state.games) === JSON.stringify(before));
+  check('empty slate: posts nothing', posted.length === 0);
+}
+
+// Findings 3 and 4: a season bootstrapped mid-way (games start at week 3),
+// scored once week 5 finishes. "Entered every week" must count weeks that
+// actually had games (3, 4, 5 — not "=== 5"), and the leaderboard post must
+// carry both the season total and that week's points.
+{
+  posted.length = 0;
+  const weeks = {
+    3: { id: 'g3', home: 'KC', away: 'BAL', winner: 'KC', kickoff: '2026-09-27T17:00Z' },
+    4: { id: 'g4', home: 'SF', away: 'SEA', winner: 'SF', kickoff: '2026-10-04T17:00Z' },
+    5: { id: 'g5', home: 'DAL', away: 'NYG', winner: 'DAL', kickoff: '2026-10-11T17:00Z' },
+  };
+  const picksByWeek = {
+    3: [{ user_id: 'a', game_id: 'g3', season: 2026, week: 3, team: 'KC', confidence: 1 }],
+    4: [{ user_id: 'a', game_id: 'g4', season: 2026, week: 4, team: 'SF', confidence: 1 }],
+    5: [{ user_id: 'a', game_id: 'g5', season: 2026, week: 5, team: 'DAL', confidence: 1 }],
+  };
+  const midSeasonDeps = {
+    ...deps,
+    openWeek: async () => 5,
+    fetchWeek: async ({ week }) => {
+      const g = weeks[week];
+      if (!g) return { season: 2026, week, games: [] };
+      return { season: 2026, week, games: [{ ...g, completed: true, voided: false }] };
+    },
+    getGames: async (_db, _season, w) => {
+      const g = weeks[w];
+      if (!g) return [];
+      return [{ ...g, voided: false, completed: true }];
+    },
+    setResults: async () => {},
+    allPicks: async (_db, _season, w) => (picksByWeek[w] ?? []).map((p) => ({ ...p, userId: p.user_id })),
+  };
+  const outMid = await runWeekly(env, api, midSeasonDeps);
+  check('mid-season: scores the current week', outMid.scored === 5);
+  check('mid-season: "entered every week" counts weeks with games, not the week number',
+    /Entered every week: <@a>/.test(posted[0]?.content ?? ''));
+  check('mid-season: post shows both season total and this week\'s points',
+    /<@a> — 3 \(\+1 this week\)/.test(posted[0]?.content ?? ''));
 }
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');

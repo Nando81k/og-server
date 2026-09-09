@@ -54,8 +54,14 @@ const read = await getGames(db4, 2026, 1);
 check('voided comes back as a boolean', read[0].voided === false);
 
 const db5 = fakeDb();
-await setResults(db5, [{ id: '1', winner: 'AAA', voided: false }]);
+await setResults(db5, 2026, 1, [{ id: '1', winner: 'AAA', voided: false }]);
 check('writes results', /UPDATE games/i.test(db5.statements[0].sql));
+check('scopes the update to season and week, not just id',
+  /WHERE id = \? AND season = \? AND week = \?/i.test(db5.statements[0].sql));
+check('binds id, season and week in order', (() => {
+  const binds = db5.statements[0].binds[0];
+  return binds[2] === '1' && binds[3] === 2026 && binds[4] === 1;
+})());
 
 const db6 = fakeDb([{ week: 3 }]);
 check('openWeek returns the week when one is found', await openWeek(db6, 2026) === 3);

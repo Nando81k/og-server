@@ -22,7 +22,6 @@ export function createApi(token) {
   }
 
   return {
-    call,
     roles: (guildId) => call('GET', `/guilds/${guildId}/roles`),
     channels: (guildId) => call('GET', `/guilds/${guildId}/channels`),
     members: (guildId, limit = 1000) =>

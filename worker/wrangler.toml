@@ -16,25 +16,20 @@ compatibility_date = "2026-09-01"
 [triggers]
 crons = ["0 9 * * *"]
 
-# Set with `wrangler secret put` — this task writes configuration only, it
-# does not provision infrastructure, so these are NOT run here. A human must
-# run each of these once, out of band:
-#   wrangler secret put DISCORD_TOKEN
-#   wrangler secret put DISCORD_PUBLIC_KEY
-#   wrangler secret put PICKS_SECRET
-# For PICKS_SECRET, use a long random value, e.g. `openssl rand -hex 32`.
-# Never put a secret value in this file.
+# Secrets live in Cloudflare, never in this file. PICKS_SECRET is already set.
+# Still to set, both from the Discord Developer Portal:
+#   wrangler secret put DISCORD_TOKEN        (Bot tab -> Reset Token)
+#   wrangler secret put DISCORD_PUBLIC_KEY   (General Information)
 [vars]
-GUILD_ID = ""
+GUILD_ID = "1546707076460445787"
 MEMBER_AFTER_DAYS = "7"
 SEASON = "2026"
 # Right-click #season-leaderboard in Discord -> Copy Channel ID.
-LEADERBOARD_CHANNEL_ID = ""
+LEADERBOARD_CHANNEL_ID = "1546736665492717600"
 
-# database_id comes from running `wrangler d1 create og-pickem` (not run here —
-# needs Cloudflare credentials this task doesn't have). Once created, apply the
-# schema with `wrangler d1 execute og-pickem --remote --file=./schema.sql`.
+# Created with `wrangler d1 create og-pickem`; schema applied with
+# `wrangler d1 execute og-pickem --remote --file=./schema.sql`. Both done.
 [[d1_databases]]
 binding = "DB"
 database_name = "og-pickem"
-database_id = "REPLACE_ME"
+database_id = "78df46c3-59bb-4491-9135-035d24586ff0"

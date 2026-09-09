@@ -41,3 +41,14 @@ export async function fetchWeek({ season, week, fetchImpl = fetch }) {
   if (!res.ok) throw new Error(`ESPN ${res.status}`);
   return parseScoreboard(await res.json());
 }
+
+// No dates/week params: ESPN's default scoreboard reports whichever season
+// and week are current, which is exactly what's needed to seed the very
+// first week (or recover after a sync that never happened) without already
+// knowing what week that is. fetchWeek is unchanged — this is a second, tiny
+// entry point for that one case.
+export async function fetchCurrentWeek({ fetchImpl = fetch } = {}) {
+  const res = await fetchImpl(SCOREBOARD_URL, { headers: { 'User-Agent': 'og-server' } });
+  if (!res.ok) throw new Error(`ESPN ${res.status}`);
+  return parseScoreboard(await res.json());
+}

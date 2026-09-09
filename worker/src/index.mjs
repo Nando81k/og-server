@@ -19,7 +19,7 @@ import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
 import { validateSubmission, lockTime } from './validate.mjs';
 import { getGames, getPicks, savePicks, openWeek } from './db.mjs';
-import { fetchWeek as espnFetchWeek } from './espn.mjs';
+import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
 import { upsertGames as dbUpsert, setResults as dbSetResults, getGames as dbGetGames,
          openWeek as dbOpenWeek, allPicks as dbAllPicks } from './db.mjs';
@@ -97,6 +97,7 @@ export async function runWeekly(env, api, deps = {}) {
   const {
     now = Date.now(),
     fetchWeek = espnFetchWeek,
+    fetchCurrentWeek = espnFetchCurrentWeek,
     getGames = dbGetGames,
     setResults = dbSetResults,
     upsertGames = dbUpsert,
@@ -105,7 +106,24 @@ export async function runWeekly(env, api, deps = {}) {
   } = deps;
 
   const week = await openWeek(env.DB, season);
-  if (!week) return { scored: null, synced: null };
+  if (!week) {
+    // openWeek is null with an empty games table on day one, before anything
+    // has ever been seeded — and, defensively, if a prior run scored the
+    // last week of a season but its sync step then failed, leaving no
+    // following week synced. Either way there's no week to score yet; seed
+    // whatever week ESPN currently reports so the season can start (or
+    // resume) instead of sitting silent forever waiting for a week that
+    // nothing will ever open. upsertGames only ever updates kickoff on
+    // conflict, so re-seeding a week that already has rows is harmless.
+    try {
+      const current = await fetchCurrentWeek();
+      await upsertGames(env.DB, season, current.week, current.games);
+      return { scored: null, synced: current.week };
+    } catch (err) {
+      console.warn(`Could not seed the season: ${err.message}`);
+      return { scored: null, synced: null };
+    }
+  }
 
   let fresh;
   try {

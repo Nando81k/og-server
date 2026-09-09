@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { parseScoreboard } from './espn.mjs';
+import { parseScoreboard, fetchCurrentWeek } from './espn.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -87,6 +87,30 @@ const empty = parseScoreboard({
 });
 check('empty events returns valid object',
   empty.season === 2026 && empty.week === 1 && empty.games.length === 0);
+
+// fetchCurrentWeek: same parsing, but no season/week query params — it asks
+// ESPN for whatever week is current rather than a specified one.
+{
+  let requestedUrl;
+  const fetchImpl = async (url) => {
+    requestedUrl = url;
+    return { ok: true, json: async () => load('week-complete.json') };
+  };
+  const current = await fetchCurrentWeek({ fetchImpl });
+  check('fetchCurrentWeek requests no dates/week params',
+    requestedUrl === 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
+  check('fetchCurrentWeek parses the fixture same as fetchWeek would',
+    current.season === 2025 && current.week === 1 && current.games.length === 16);
+}
+{
+  const fetchImpl = async () => ({ ok: false, status: 503 });
+  try {
+    await fetchCurrentWeek({ fetchImpl });
+    check('fetchCurrentWeek throws on a non-ok response', false);
+  } catch (e) {
+    check('fetchCurrentWeek throws on a non-ok response', e.message.includes('503'));
+  }
+}
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

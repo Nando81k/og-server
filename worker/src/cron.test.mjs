@@ -46,5 +46,41 @@ const out2 = await runWeekly(env, api, broken);
 check('does nothing when the feed is down', out2.scored === null);
 check('posts nothing when the feed is down', posted.length === 0);
 
+// Bootstrap: openWeek is null with an empty games table — day one, before
+// anything has ever been seeded. runWeekly must seed the current week from
+// ESPN's own scoreboard rather than sitting silent forever.
+posted.length = 0;
+{
+  let seededSeason, seededWeek, seededGames;
+  const seedGames = [
+    { id: '9', kickoff: '2026-10-06T17:00Z', home: 'SF', away: 'SEA', winner: null, completed: false, voided: false },
+  ];
+  const bootstrapDeps = {
+    ...deps,
+    openWeek: async () => null,
+    fetchCurrentWeek: async () => ({ season: 2026, week: 4, games: seedGames }),
+    upsertGames: async (_db, season, week, games) => { seededSeason = season; seededWeek = week; seededGames = games; },
+  };
+  const out3 = await runWeekly(env, api, bootstrapDeps);
+  check('bootstrap: scores nothing', out3.scored === null);
+  check('bootstrap: syncs the current week ESPN reports', out3.synced === 4);
+  check('bootstrap: upserts that week\'s games', seededSeason === 2026 && seededWeek === 4 && seededGames === seedGames);
+  check('bootstrap: posts no leaderboard', posted.length === 0);
+}
+
+// Bootstrap where the seed itself fails: still must not throw or post.
+{
+  const bootstrapBroken = {
+    ...deps,
+    openWeek: async () => null,
+    fetchCurrentWeek: async () => { throw new Error('espn down'); },
+    upsertGames: async () => { throw new Error('should not be called'); },
+  };
+  const out4 = await runWeekly(env, api, bootstrapBroken);
+  check('bootstrap failure: scores nothing', out4.scored === null);
+  check('bootstrap failure: syncs nothing', out4.synced === null);
+  check('bootstrap failure: posts nothing', posted.length === 0);
+}
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

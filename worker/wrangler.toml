@@ -2,13 +2,19 @@ name = "og-server-bot"
 main = "src/index.mjs"
 compatibility_date = "2026-09-01"
 
-# One trigger, once a week: scheduled() now runs the New Member -> Member
-# promotion pass AND the pick'em job (score last week, post the leaderboard,
-# sync the next week's schedule) on every invocation, so a single Tuesday
-# 09:00 UTC cron drives both. Order inside scheduled() is fixed — promotions,
-# then the weekly job — and is not affected by this schedule.
+# Daily, not weekly. scheduled() runs the New Member -> Member promotion
+# pass AND the pick'em job (score last week, post the leaderboard, sync the
+# next week's schedule) on every invocation, and both are safe to run every
+# day: promotions only act on members actually due, and runWeekly's own
+# openWeek check means an incomplete week returns early and an ESPN failure
+# is a no-op, so the leaderboard still posts exactly once, as soon as the
+# week actually finishes — because openWeek advances to the next week right
+# after this run scores and syncs it, so tomorrow's run finds nothing left
+# to score. A weekly-only trigger would instead let a promotion wait up to
+# 13 days for "a week", and would idle the leaderboard post until the next
+# Tuesday even when the week finished days earlier.
 [triggers]
-crons = ["0 9 * * 2"]
+crons = ["0 9 * * *"]
 
 # Set with `wrangler secret put` — this task writes configuration only, it
 # does not provision infrastructure, so these are NOT run here. A human must

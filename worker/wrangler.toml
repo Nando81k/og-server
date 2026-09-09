@@ -2,15 +2,28 @@ name = "og-server-bot"
 main = "src/index.mjs"
 compatibility_date = "2026-09-01"
 
-# The promotion pass. Once a day is plenty — nobody's seventh day is urgent.
+# One trigger, once a week: scheduled() now runs the New Member -> Member
+# promotion pass AND the pick'em job (score last week, post the leaderboard,
+# sync the next week's schedule) on every invocation, so a single Tuesday
+# 09:00 UTC cron drives both. Order inside scheduled() is fixed — promotions,
+# then the weekly job — and is not affected by this schedule.
 [triggers]
-crons = ["0 9 * * *"]
+crons = ["0 9 * * 2"]
 
-# Set with `wrangler secret put`, never in this file:
-#   DISCORD_TOKEN, DISCORD_PUBLIC_KEY
+# Set with `wrangler secret put` — this task writes configuration only, it
+# does not provision infrastructure, so these are NOT run here. A human must
+# run each of these once, out of band:
+#   wrangler secret put DISCORD_TOKEN
+#   wrangler secret put DISCORD_PUBLIC_KEY
+#   wrangler secret put PICKS_SECRET
+# For PICKS_SECRET, use a long random value, e.g. `openssl rand -hex 32`.
+# Never put a secret value in this file.
 [vars]
 GUILD_ID = ""
 MEMBER_AFTER_DAYS = "7"
+SEASON = "2026"
+# Right-click #season-leaderboard in Discord -> Copy Channel ID.
+LEADERBOARD_CHANNEL_ID = ""
 
 # database_id comes from running `wrangler d1 create og-pickem` (not run here —
 # needs Cloudflare credentials this task doesn't have). Once created, apply the

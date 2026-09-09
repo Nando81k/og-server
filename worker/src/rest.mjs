@@ -31,5 +31,10 @@ export function createApi(token) {
       call('PUT', `/guilds/${guildId}/members/${userId}/roles/${roleId}`),
     removeRole: (guildId, userId, roleId) =>
       call('DELETE', `/guilds/${guildId}/members/${userId}/roles/${roleId}`),
+    postMessage: (channelId, content) =>
+      call('POST', `/channels/${channelId}/messages`, {
+        content,
+        allowed_mentions: { parse: [] },
+      }),
   };
 }

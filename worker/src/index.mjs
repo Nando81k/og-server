@@ -7,7 +7,9 @@
  *
  * Two entry points:
  *   fetch()     - slash commands, arriving as signed HTTPS requests
- *   scheduled() - the daily pass promoting New Member to Member
+ *   scheduled() - the New Member -> Member promotion pass, plus the weekly
+ *                 pick'em job (score last week, post the leaderboard, sync
+ *                 the next week's schedule)
  */
 
 import { isFromDiscord } from './verify.mjs';
@@ -17,6 +19,10 @@ import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
 import { validateSubmission, lockTime } from './validate.mjs';
 import { getGames, getPicks, savePicks, openWeek } from './db.mjs';
+import { fetchWeek as espnFetchWeek } from './espn.mjs';
+import { scoreWeek, buildStandings } from './scoring.mjs';
+import { upsertGames as dbUpsert, setResults as dbSetResults, getGames as dbGetGames,
+         openWeek as dbOpenWeek, allPicks as dbAllPicks } from './db.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -84,6 +90,79 @@ export async function runPromotions(env, api, now = Date.now()) {
     }
   }
   return { promoted, skipped };
+}
+
+export async function runWeekly(env, api, deps = {}) {
+  const season = Number(env.SEASON);
+  const {
+    now = Date.now(),
+    fetchWeek = espnFetchWeek,
+    getGames = dbGetGames,
+    setResults = dbSetResults,
+    upsertGames = dbUpsert,
+    openWeek = dbOpenWeek,
+    allPicks = dbAllPicks,
+  } = deps;
+
+  const week = await openWeek(env.DB, season);
+  if (!week) return { scored: null, synced: null };
+
+  let fresh;
+  try {
+    fresh = await fetchWeek({ season, week });
+  } catch (err) {
+    console.warn(`ESPN unavailable, doing nothing this run: ${err.message}`);
+    return { scored: null, synced: null };
+  }
+
+  // Only score a week where every game has finished. A week is all or nothing.
+  if (!fresh.games.every((g) => g.completed)) return { scored: null, synced: null };
+
+  // A game postponed out of the week disappears from the feed. The spec voids
+  // it rather than renumbering everyone's confidence after the fact.
+  const stored = await getGames(env.DB, season, week);
+  const live = new Set(fresh.games.map((g) => g.id));
+  const dropped = stored.filter((g) => !live.has(g.id)).map((g) => ({ ...g, winner: null, voided: true }));
+  await setResults(env.DB, [...fresh.games, ...dropped]);
+  // Score every week of the season, not just this one: the posted table is
+  // the season standings, and recomputing from stored rows is what makes a
+  // second run of this job produce identical numbers.
+  const rows = [];
+  for (let w = 1; w <= week; w += 1) {
+    const weekGames = await getGames(env.DB, season, w);
+    if (weekGames.length === 0) continue;
+    const weekPicks = await allPicks(env.DB, season, w);
+    const byUser = new Map();
+    for (const p of weekPicks) {
+      if (!byUser.has(p.userId)) byUser.set(p.userId, []);
+      byUser.get(p.userId).push(p);
+    }
+    for (const [userId, theirs] of byUser) {
+      const { points, correct } = scoreWeek({ games: weekGames, picks: theirs });
+      rows.push({ userId, points, correct, week: w });
+    }
+  }
+
+  const table = buildStandings(rows);
+  const everyWeek = table.filter((r) => r.weeks === week).map((r) => `<@${r.userId}>`);
+  const lines = table
+    .map((r, i) => `${i + 1}. <@${r.userId}> — ${r.points}`)
+    .join('\n');
+
+  await api.postMessage(
+    env.LEADERBOARD_CHANNEL_ID,
+    `**Week ${week} is in.**\n${lines}` +
+      (everyWeek.length ? `\n\nEntered every week: ${everyWeek.join(', ')}` : '')
+  );
+
+  const next = week + 1;
+  try {
+    const upcoming = await fetchWeek({ season, week: next });
+    await upsertGames(env.DB, season, next, upcoming.games);
+    return { scored: week, synced: next };
+  } catch {
+    return { scored: week, synced: null };
+  }
 }
 
 export default {
@@ -195,7 +274,9 @@ export default {
 
   async scheduled(event, env) {
     const api = createApi(env.DISCORD_TOKEN);
-    const result = await runPromotions(env, api);
-    console.log(`Promotion pass: ${result.promoted} promoted, ${result.skipped} not due yet.`);
+    const promo = await runPromotions(env, api);
+    console.log(`Promotion pass: ${promo.promoted} promoted, ${promo.skipped} not due yet.`);
+    const week = await runWeekly(env, api);
+    console.log(`Pick'em: scored ${week.scored ?? 'nothing'}, synced ${week.synced ?? 'nothing'}.`);
   },
 };

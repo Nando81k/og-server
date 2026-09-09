@@ -256,7 +256,10 @@ export default {
         // the verifier's own segment-count guard ever regressed.
         const safeToken = rawToken.split('.').slice(0, 2).join('.');
         return new Response(
-          renderForm({ games, teams, picks, token: safeToken, lockAt: lockTime(games) }),
+          renderForm({
+            games, teams, picks, token: safeToken,
+            lockAt: lockTime(games), guildId: env.GUILD_ID,
+          }),
           { headers: { 'Content-Type': 'text/html' } }
         );
       }

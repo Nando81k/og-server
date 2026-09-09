@@ -77,6 +77,16 @@ check('the confirmation is a labelled dialog',
   html.includes('role="dialog"') && html.includes('aria-modal="true"') && html.includes('aria-labelledby'));
 check('the confirmation has a way out', html.includes('id="vb"'));
 
+// The dialog offers a route back to Discord after a successful save.
+const withGuild = render({ guildId: '1546707076460445787' });
+check('carries a link back to the server',
+  withGuild.includes('https://discord.com/channels/1546707076460445787'));
+check('offers the Discord wording', withGuild.includes('Back to Discord'));
+check('falls back to staying put when no guild is known',
+  JSON.parse(html.match(/const DATA = (\{.*?\});\n/s)[1]).back === '');
+check('a guild id is url-encoded rather than interpolated raw',
+  render({ guildId: 'a/b"c' }).includes('a%2Fb%22c'));
+
 // Games must render in place, not as a separate slip that reflows.
 check('no separate slip section that would move rows', !html.includes('class="slip"'));
 check('each side carries a slot for its points', html.includes('CLIENT') || html.includes('pts'));

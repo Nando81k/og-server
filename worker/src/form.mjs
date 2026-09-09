@@ -125,7 +125,7 @@ export function renderMessage(text) {
   );
 }
 
-export function renderForm({ games, teams = {}, picks = [], token, lockAt }) {
+export function renderForm({ games, teams = {}, picks = [], token, lockAt, guildId = '' }) {
   // Fall back to the abbreviation so a team missing from the branding table
   // still renders a usable button rather than a blank one.
   const team = (abbr) =>
@@ -134,6 +134,9 @@ export function renderForm({ games, teams = {}, picks = [], token, lockAt }) {
   const data = {
     n: games.length,
     lockAt,
+    // Where the "back to Discord" button goes. A universal link, so on a phone
+    // the Discord app takes over rather than opening the web client.
+    back: guildId ? `https://discord.com/channels/${encodeURIComponent(guildId)}` : '',
     games: games.map((g) => ({
       id: g.id,
       kickoff: g.kickoff,
@@ -167,7 +170,7 @@ export function renderForm({ games, teams = {}, picks = [], token, lockAt }) {
     <div class="tick" id="vi">&#10003;</div>
     <h2 id="vt"></h2>
     <p id="vp"></p>
-    <button id="vb">Back to my picks</button>
+    <button id="vb"></button>
   </div>
 </div>
 <script>
@@ -260,15 +263,29 @@ const CLIENT = `
     paint();
   });
 
+  var vb = document.getElementById('vb');
+  var leaving = false;
+
   function popup(ok, title, body){
     document.getElementById('card').classList.toggle('bad', !ok);
     document.getElementById('vi').textContent = ok ? '\\u2713' : '!';
     document.getElementById('vt').textContent = title;
     document.getElementById('vp').textContent = body;
+    // Only a successful save offers to leave; a failure keeps you here to retry.
+    leaving = ok && !!DATA.back;
+    vb.textContent = leaving ? 'Back to Discord' : 'Back to my picks';
     veil.hidden = false;
-    document.getElementById('vb').focus();
+    vb.focus();
   }
-  document.getElementById('vb').addEventListener('click', function(){ veil.hidden = true; });
+
+  vb.addEventListener('click', function(){
+    if (!leaving) { veil.hidden = true; return; }
+    // A tab the browser opened by following a link cannot be closed by script,
+    // so this usually does nothing. Navigating is the reliable path; the app
+    // picks up the universal link on a phone.
+    window.close();
+    setTimeout(function(){ location.href = DATA.back; }, 120);
+  });
   veil.addEventListener('click', function(e){ if (e.target === veil) veil.hidden = true; });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') veil.hidden = true; });
 

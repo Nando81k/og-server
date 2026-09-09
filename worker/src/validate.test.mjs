@@ -57,5 +57,34 @@ check('rejects an unknown game', unknown.ok === false);
 
 check('rejects a non-array', validateSubmission({ games, submission: null, now: before }).ok === false);
 
+// New tests for critical fixes
+const dupGame = validateSubmission({ games, now: before, submission: [
+  { game_id: '1', team: 'AAA', confidence: 3 },
+  { game_id: '1', team: 'AAA', confidence: 2 },
+  { game_id: '1', team: 'AAA', confidence: 1 },
+]});
+check('rejects duplicate game_id (same game 3 times)', dupGame.ok === false && /only once/i.test(dupGame.error));
+
+const dupGameAndMiss = validateSubmission({ games, now: before, submission: [
+  { game_id: '1', team: 'AAA', confidence: 3 },
+  { game_id: '1', team: 'AAA', confidence: 2 },
+  { game_id: '2', team: 'DDD', confidence: 1 },
+]});
+check('rejects duplicate game_id with missing game', dupGameAndMiss.ok === false);
+
+// Wrap non-object entry tests to catch throws
+const testNonObject = (label, entry) => {
+  try {
+    const result = validateSubmission({ games, now: before, submission: [entry, good[1], good[2]] });
+    check(label, result.ok === false);
+  } catch (e) {
+    check(label, false);
+  }
+};
+
+testNonObject('rejects null entry without throwing', null);
+testNonObject('rejects string entry without throwing', 'string');
+testNonObject('rejects undefined entry without throwing', undefined);
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

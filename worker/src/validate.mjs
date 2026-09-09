@@ -14,10 +14,16 @@ export function validateSubmission({ games, submission, now }) {
 
   const byId = new Map(games.map((g) => [g.id, g]));
   const seen = new Set();
+  const seenGames = new Set();
 
   for (const p of submission) {
+    if (!p || typeof p !== 'object') return bad('That submission was not readable.');
     const game = byId.get(p.game_id);
     if (!game) return bad('That slate includes a game that is not in this week.');
+    if (seenGames.has(p.game_id)) {
+      return bad('Each game can be picked only once.');
+    }
+    seenGames.add(p.game_id);
     if (p.team !== game.home && p.team !== game.away) {
       return bad(`${p.team} is not playing in that game.`);
     }

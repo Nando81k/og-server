@@ -31,6 +31,9 @@ const APPLICATION_COMMAND = 2;
 const PONG = 1;
 const REPLY = 4;
 
+/** Discord channel type for a guild voice channel. */
+const GUILD_VOICE = 2;
+
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
@@ -50,14 +53,25 @@ export async function handleLfg(interaction, env, api) {
 
   const [roles, channels] = await Promise.all([api.roles(env.GUILD_ID), api.channels(env.GUILD_ID)]);
   const role = roles.find((r) => r.name === roleName);
-  const room = channels.find((c) => c.name === roomName);
+  // Match on type as well as name: a text channel sharing the room's name would
+  // otherwise be linked instead, and `<#id>` gives no hint that it went wrong.
+  const room = channels.find((c) => c.name === roomName && c.type === GUILD_VOICE);
   const who = interaction.member?.user?.id ?? interaction.user?.id;
 
   const ping = role ? `<@&${role.id}>` : roleName;
-  const where = room ? `<#${room.id}>` : roomName;
+
+  // A missing room used to fall back to the bare room name, which reads as a
+  // dead link and tells nobody why. Say what is wrong instead, and log it.
+  let where;
+  if (room) {
+    where = `Jump in: <#${room.id}>`;
+  } else {
+    console.warn(`/lfg: no voice channel named ${JSON.stringify(roomName)} in guild ${env.GUILD_ID}`);
+    where = `No **${roomName}** channel exists yet — someone with Manage Channels needs to create it.`;
+  }
 
   return {
-    content: `${ping} — <@${who}> is running **${roleName}**, ${count} slots.\nJump in: ${where}`,
+    content: `${ping} — <@${who}> is running **${roleName}**, ${count} slots.\n${where}`,
     allowed_mentions: { parse: [], roles: role ? [role.id] : [], users: who ? [who] : [] },
   };
 }

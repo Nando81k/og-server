@@ -11,7 +11,13 @@ const ROLES = [
   { id: '100', name: '2K' }, { id: '101', name: 'CoD' },
   { id: '200', name: 'New Member' }, { id: '201', name: 'Member' },
 ];
-const CHANNELS = [{ id: '900', name: '2K Voice' }, { id: '901', name: 'CoD Voice' }];
+// type 2 is a guild voice channel; 0 is text. The decoy shares 2K Voice's name
+// so the lookup has to discriminate on type, not just name.
+const CHANNELS = [
+  { id: '900', name: '2K Voice', type: 2 },
+  { id: '901', name: 'CoD Voice', type: 2 },
+  { id: '902', name: 'Madden Voice', type: 0 },
+];
 const env = { GUILD_ID: '1546707076460445787', DISCORD_TOKEN: 'x', MEMBER_AFTER_DAYS: 7 };
 
 function fakeApi(members = []) {
@@ -47,6 +53,26 @@ console.log('--- /lfg ---');
   const res = await handleLfg({ data: { options: [{ name: 'game', value: 'cod' }] },
     member: { user: { id: '5' } } }, env, fakeApi());
   check('slots default to 5 when omitted', res.content.includes('5 slots'));
+}
+{
+  // Madden Voice exists in the fixture but as a text channel. Linking it would
+  // produce a jump link that drops people somewhere they cannot talk.
+  const res = await handleLfg({ data: { options: [{ name: 'game', value: 'madden' }] },
+    member: { user: { id: '5' } } }, env, fakeApi());
+  check('a text channel of the same name is not linked', !res.content.includes('<#902>'));
+  check('wrong-type room is reported, not silently linked',
+    res.content.includes('No **Madden Voice** channel exists yet'));
+}
+{
+  // The failure that produced the original #unknown: no room, and the old code
+  // emitted a bare name that read as a dead link.
+  const api = fakeApi();
+  api.channels = async () => [];
+  const res = await handleLfg({ data: { options: [{ name: 'game', value: '2k' }] },
+    member: { user: { id: '5' } } }, env, api);
+  check('missing room never emits a channel mention', !res.content.includes('<#'));
+  check('missing room explains itself', res.content.includes('No **2K Voice** channel exists yet'));
+  check('missing room still pings the game role', res.content.includes('<@&100>'));
 }
 
 console.log('\n--- promotions ---');

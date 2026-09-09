@@ -81,3 +81,38 @@ export async function openWeek(db, season) {
     .all();
   return results?.[0]?.week ?? null;
 }
+
+export async function upsertTeams(db, teams) {
+  for (const t of teams) {
+    await db
+      .prepare(
+        `INSERT INTO teams (abbr, name, short_name, logo, color, alt_color)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(abbr) DO UPDATE SET
+           name = excluded.name,
+           short_name = excluded.short_name,
+           logo = excluded.logo,
+           color = excluded.color,
+           alt_color = excluded.alt_color`
+      )
+      .bind(t.abbr, t.name, t.shortName, t.logo, t.color, t.altColor)
+      .run();
+  }
+}
+
+/** Keyed by abbreviation, which is how games rows refer to a team. */
+export async function getTeams(db) {
+  const { results } = await db.prepare(`SELECT * FROM teams`).all();
+  const out = {};
+  for (const r of results ?? []) {
+    out[r.abbr] = {
+      abbr: r.abbr,
+      name: r.name,
+      shortName: r.short_name,
+      logo: r.logo,
+      color: r.color,
+      altColor: r.alt_color,
+    };
+  }
+  return out;
+}

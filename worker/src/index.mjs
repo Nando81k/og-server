@@ -21,6 +21,7 @@ import { validateSubmission, lockTime } from './validate.mjs';
 import {
   getGames, getPicks, savePicks, openWeek,
   upsertGames as dbUpsert, setResults as dbSetResults, allPicks as dbAllPicks,
+  upsertTeams as dbUpsertTeams, getTeams,
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
@@ -101,6 +102,7 @@ export async function runWeekly(env, api, deps = {}) {
     fetchCurrentWeek = espnFetchCurrentWeek,
     setResults = dbSetResults,
     upsertGames = dbUpsert,
+    upsertTeams = dbUpsertTeams,
     allPicks = dbAllPicks,
   } = deps;
   // getGames and openWeek are also imported plainly for use in fetch() below,
@@ -122,6 +124,7 @@ export async function runWeekly(env, api, deps = {}) {
     // conflict, so re-seeding a week that already has rows is harmless.
     try {
       const current = await fetchCurrentWeek();
+      await upsertTeams(env.DB, current.teams ?? []);
       await upsertGames(env.DB, season, current.week, current.games);
       return { scored: null, synced: current.week };
     } catch (err) {
@@ -197,6 +200,7 @@ export async function runWeekly(env, api, deps = {}) {
   const next = week + 1;
   try {
     const upcoming = await fetchWeek({ season, week: next });
+    await upsertTeams(env.DB, upcoming.teams ?? []);
     await upsertGames(env.DB, season, next, upcoming.games);
     return { scored: week, synced: next };
   } catch {
@@ -241,6 +245,7 @@ export default {
         });
       }
       const games = await getGames(env.DB, claims.season, claims.week);
+      const teams = await getTeams(env.DB);
 
       if (request.method === 'GET') {
         const picks = await getPicks(env.DB, claims.userId, claims.season, claims.week);
@@ -251,7 +256,7 @@ export default {
         // the verifier's own segment-count guard ever regressed.
         const safeToken = rawToken.split('.').slice(0, 2).join('.');
         return new Response(
-          renderForm({ games, picks, token: safeToken, lockAt: lockTime(games) }),
+          renderForm({ games, teams, picks, token: safeToken, lockAt: lockTime(games) }),
           { headers: { 'Content-Type': 'text/html' } }
         );
       }

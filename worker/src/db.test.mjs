@@ -1,4 +1,4 @@
-import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek } from './db.mjs';
+import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams } from './db.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -68,6 +68,28 @@ check('openWeek returns the week when one is found', await openWeek(db6, 2026) =
 
 const db7 = fakeDb([]);
 check('openWeek returns null when the query yields no rows', await openWeek(db7, 2026) === null);
+
+// --- teams ---
+const dbT = fakeDb();
+await upsertTeams(dbT, [
+  { abbr: 'KC', name: 'Kansas City Chiefs', shortName: 'Chiefs', logo: 'https://x/kc.png', color: 'e31837', altColor: 'ffb81c' },
+  { abbr: 'SEA', name: 'Seattle Seahawks', shortName: 'Seahawks', logo: 'https://x/sea.png', color: '002a5c', altColor: '69be28' },
+]);
+check('writes one statement per team', dbT.statements.length === 2);
+check('upserts teams rather than failing on a repeat',
+  dbT.statements.every((st) => /ON CONFLICT/i.test(st.sql)));
+check('binds the abbreviation', dbT.statements[0].binds[0].includes('KC'));
+
+const dbR = fakeDb([
+  { abbr: 'KC', name: 'Kansas City Chiefs', short_name: 'Chiefs', logo: 'https://x/kc.png', color: 'e31837', alt_color: 'ffb81c' },
+]);
+const teamMap = await getTeams(dbR);
+check('reads teams back keyed by abbreviation', teamMap.KC && teamMap.KC.name === 'Kansas City Chiefs');
+check('maps snake_case columns to the shape the form expects',
+  teamMap.KC.shortName === 'Chiefs' && teamMap.KC.altColor === 'ffb81c');
+
+const dbEmpty = fakeDb([]);
+check('an empty teams table yields an empty map', Object.keys(await getTeams(dbEmpty)).length === 0);
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

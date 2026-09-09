@@ -140,5 +140,42 @@ check('empty events returns valid object',
   }
 }
 
+// --- team branding, for the pick form ---
+const withTeams = parseScoreboard(load('week-pre.json'));
+check('returns a teams list', Array.isArray(withTeams.teams));
+check('one entry per team in the week', withTeams.teams.length === withTeams.games.length * 2);
+check('teams are deduplicated by abbreviation',
+  new Set(withTeams.teams.map((t) => t.abbr)).size === withTeams.teams.length);
+check('every game abbreviation resolves to a team',
+  withTeams.games.every((g) =>
+    withTeams.teams.some((t) => t.abbr === g.home) && withTeams.teams.some((t) => t.abbr === g.away)));
+check('every team has a full display name',
+  withTeams.teams.every((t) => typeof t.name === 'string' && t.name.includes(' ')));
+check('every team has a short name', withTeams.teams.every((t) => t.shortName && t.shortName.length > 0));
+check('every team has a logo url',
+  withTeams.teams.every((t) => typeof t.logo === 'string' && t.logo.startsWith('https://')));
+check('every team has a hex colour',
+  withTeams.teams.every((t) => /^[0-9a-f]{6}$/i.test(t.color)));
+check('every team has an alternate colour',
+  withTeams.teams.every((t) => /^[0-9a-f]{6}$/i.test(t.altColor)));
+
+const sea = withTeams.teams.find((t) => t.abbr === 'SEA');
+check('Seattle resolves to its real name', sea && sea.name === 'Seattle Seahawks');
+check('Seattle carries its own colour', sea && sea.color.toLowerCase() === '002a5c');
+
+// A team missing branding must not take the whole week down.
+const sparse = parseScoreboard({
+  season: { year: 2026 }, week: { number: 1 },
+  events: [{ id: '9', date: '2026-09-13T17:00Z', competitions: [{
+    status: { type: { completed: false } },
+    competitors: [
+      { homeAway: 'home', team: { abbreviation: 'AAA' } },
+      { homeAway: 'away', team: { abbreviation: 'BBB', displayName: 'B Team', logo: 'https://x/b.png', color: 'ffffff' } },
+    ] }] }],
+});
+check('a team with no branding still yields an entry', sparse.teams.length === 2);
+check('missing branding falls back to the abbreviation',
+  sparse.teams.find((t) => t.abbr === 'AAA').name === 'AAA');
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

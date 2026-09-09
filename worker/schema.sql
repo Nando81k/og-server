@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS picks (
   PRIMARY KEY (user_id, game_id)
 );
 CREATE INDEX IF NOT EXISTS picks_week ON picks (season, week);
+
+-- Branding for the pick form, captured from the same ESPN payload the schedule
+-- sync reads. Keyed by abbreviation because that is what games rows store.
+CREATE TABLE IF NOT EXISTS teams (
+  abbr       TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  short_name TEXT NOT NULL,
+  logo       TEXT NOT NULL,
+  color      TEXT NOT NULL,
+  alt_color  TEXT NOT NULL
+);

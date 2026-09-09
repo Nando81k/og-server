@@ -70,6 +70,17 @@ const missing = renderForm({
 });
 check('an unbranded team still renders', missing.includes('ZZZ'));
 
+// The confirmation is markup, present but hidden until a save resolves.
+check('ships a confirmation dialog', html.includes('id="veil"'));
+check('the confirmation starts hidden', /<div class="veil" id="veil" hidden/.test(html));
+check('the confirmation is a labelled dialog',
+  html.includes('role="dialog"') && html.includes('aria-modal="true"') && html.includes('aria-labelledby'));
+check('the confirmation has a way out', html.includes('id="vb"'));
+
+// Games must render in place, not as a separate slip that reflows.
+check('no separate slip section that would move rows', !html.includes('class="slip"'));
+check('each side carries a slot for its points', html.includes('CLIENT') || html.includes('pts'));
+
 check('the message page is a document', renderMessage('gone').startsWith('<!doctype html>'));
 check('the message page escapes its text', !renderMessage('<script>x</script>').includes('<script>x<'));
 

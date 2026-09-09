@@ -50,16 +50,14 @@ const CSS = `
   h2{font:600 13px/1 Barlow,sans-serif;letter-spacing:.02em;color:var(--muted);
     margin:22px 0 8px;font-weight:500}
 
-  .slip{display:flex;flex-direction:column;gap:6px}
-  .staked{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;
-    background:var(--pick);cursor:pointer;border:0;width:100%;text-align:left;color:inherit;
-    font:inherit;transition:transform .12s ease}
-  .staked:active{transform:scale(.99)}
-  .staked .pts{font:700 26px/1 'Barlow Condensed',sans-serif;font-variant-numeric:tabular-nums;
-    min-width:2.2ch;text-align:right}
-  .staked img{width:26px;height:26px;object-fit:contain;flex:none}
-  .staked .who{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .staked .vs{color:#ffffffb0;font-size:13px;white-space:nowrap}
+  /* Games never move. Picking fills the side in place, so nothing reflows
+     under the finger that just tapped it. */
+  .side.on{background:var(--pick);border-color:#ffffff45}
+  .side.on .city{color:#ffffffc4}
+  .side .pts{margin-left:auto;font:700 22px/1 'Barlow Condensed',sans-serif;
+    font-variant-numeric:tabular-nums;opacity:0;transition:opacity .14s ease}
+  .side.on .pts{opacity:1}
+  .game.called{border-color:#ffffff2e}
 
   .game{background:var(--surface);border:1px solid var(--line);border-radius:12px;
     margin-bottom:8px;overflow:hidden}
@@ -87,6 +85,20 @@ const CSS = `
   #send[disabled]{background:#25332b;color:var(--muted);cursor:default}
   #msg{margin-top:9px;font-size:14px;color:var(--live);text-align:center;min-height:1.2em}
   .empty{color:var(--muted);padding:10px 2px;font-size:14.5px}
+
+  /* Submitting is the one moment worth interrupting for. */
+  .veil{position:fixed;inset:0;background:#060a08d9;display:flex;align-items:center;
+    justify-content:center;padding:24px;z-index:20}
+  .veil[hidden]{display:none}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:26px 22px;max-width:340px;width:100%;text-align:center}
+  .card .tick{font:700 46px/1 'Barlow Condensed',sans-serif;color:var(--live)}
+  .card h2{font:700 24px/1.15 'Barlow Condensed',sans-serif;color:var(--ink);
+    margin:8px 0 6px;letter-spacing:0}
+  .card p{color:var(--muted);margin:0 0 18px;font-size:15px}
+  .card button{width:100%;padding:13px;border:0;border-radius:10px;
+    font:600 16px Barlow,sans-serif;background:var(--live);color:#1a1206;cursor:pointer}
+  .card.bad .tick{color:#ff7a6b}
 
   /* Standalone states (expired link, no open week). Not the pick form, so it
      does not borrow the stake hero — a giant em dash reads as a glitch. */
@@ -150,6 +162,14 @@ export function renderForm({ games, teams = {}, picks = [], token, lockAt }) {
   <button id="send" disabled>Submit picks</button>
   <div id="msg"></div>
 </div></div>
+<div class="veil" id="veil" hidden role="dialog" aria-modal="true" aria-labelledby="vt">
+  <div class="card" id="card">
+    <div class="tick" id="vi">&#10003;</div>
+    <h2 id="vt"></h2>
+    <p id="vp"></p>
+    <button id="vb">Back to my picks</button>
+  </div>
+</div>
 <script>
 const DATA = ${jsonForScript(data)};
 const TOKEN = ${jsonForScript(token)};
@@ -167,82 +187,95 @@ const CLIENT = `
 (function(){
   var N = DATA.n, order = DATA.order.slice();
   var app = document.getElementById('app');
-  var byId = {}; DATA.games.forEach(function(g){ byId[g.id] = g; });
+  var send = document.getElementById('send');
+  var veil = document.getElementById('veil');
 
   function esc(s){ return String(s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function hex(c){ return /^[0-9a-fA-F]{6}$/.test(c) ? '#'+c : '#2b3a31'; }
-  function kickoff(iso){
-    var d = new Date(iso);
-    return d.toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'});
+  function when(iso){
+    return new Date(iso).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'});
   }
-  function pickedIds(){ return order.map(function(p){ return p.gameId; }); }
+  function indexOfPick(gameId){
+    for (var i=0;i<order.length;i++) if (order[i].gameId === gameId) return i;
+    return -1;
+  }
 
-  function render(){
-    var taken = pickedIds();
-    var open = DATA.games.filter(function(g){ return taken.indexOf(g.id) === -1; });
+  // Built ONCE. Every later change touches only the elements that changed, so
+  // the list never rebuilds and nothing shifts under the finger mid-tap.
+  app.innerHTML = DATA.games.map(function(g){
+    function side(s){
+      var parts = s.name.split(' '), nick = parts.pop(), city = parts.join(' ');
+      return '<button class="side" data-game="' + esc(g.id) + '" data-team="' + esc(s.abbr) + '"' +
+        ' style="--pick:' + hex(s.color) + '" aria-pressed="false">' +
+        (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : '') +
+        '<span class="nm"><span class="city">' + esc(city || s.abbr) + '</span>' +
+        '<span class="team">' + esc(nick) + '</span></span>' +
+        '<span class="pts"></span></button>';
+    }
+    return '<div class="game" data-row="' + esc(g.id) + '">' +
+      '<div class="when">' + esc(when(g.kickoff)) + '</div>' +
+      '<div class="sides">' + side(g.away) + side(g.home) + '</div></div>';
+  }).join('');
 
-    var slip = order.map(function(p, i){
-      var g = byId[p.gameId];
-      var side = g.home.abbr === p.team ? g.home : g.away;
-      var other = g.home.abbr === p.team ? g.away : g.home;
-      return '<button class="staked" data-undo="' + esc(g.id) + '" style="--pick:' + hex(side.color) + '">' +
-        '<span class="pts">' + (N - i) + '</span>' +
-        (side.logo ? '<img src="' + esc(side.logo) + '" alt="">' : '') +
-        '<span class="who">' + esc(side.name) + '</span>' +
-        '<span class="vs">over ' + esc(other.abbr) + '</span></button>';
-    }).join('');
+  var sides = Array.prototype.slice.call(app.querySelectorAll('.side'));
 
-    var rows = open.map(function(g){
-      function sideBtn(s){
-        var parts = s.name.split(' ');
-        var nick = parts.pop();
-        var city = parts.join(' ');
-        return '<button class="side" data-game="' + esc(g.id) + '" data-team="' + esc(s.abbr) + '">' +
-          (s.logo ? '<img src="' + esc(s.logo) + '" alt="">' : '') +
-          '<span class="nm"><span class="city">' + esc(city || s.abbr) + '</span>' +
-          '<span class="team">' + esc(nick) + '</span></span></button>';
-      }
-      return '<div class="game"><div class="when">' + esc(kickoff(g.kickoff)) + '</div>' +
-        '<div class="sides">' + sideBtn(g.away) + sideBtn(g.home) + '</div></div>';
-    }).join('');
+  function paint(){
+    sides.forEach(function(el){
+      var i = indexOfPick(el.dataset.game);
+      var on = i !== -1 && order[i].team === el.dataset.team;
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+      el.querySelector('.pts').textContent = on ? String(N - i) : '';
+    });
+    app.querySelectorAll('.game').forEach(function(row){
+      row.classList.toggle('called', indexOfPick(row.dataset.row) !== -1);
+    });
 
-    app.innerHTML =
-      (order.length ? '<h2>Your slip \\u2014 tap to undo</h2><div class="slip">' + slip + '</div>' : '') +
-      (open.length ? '<h2>' + open.length + ' still to call</h2>' + rows
-                   : '<div class="empty">Every game called. Submit when you\\u2019re happy.</div>');
-
-    var left = N - order.length;
-    var unassigned = 0; for (var k = 1; k <= left; k++) unassigned += k;
-    document.getElementById('next').textContent = left ? String(left) : 'Set';
+    var left = N - order.length, unassigned = 0;
+    for (var k = 1; k <= left; k++) unassigned += k;
+    document.getElementById('next').textContent = left ? String(left) : String(N);
     document.getElementById('lab').textContent = left
       ? 'points ride on your next pick'
-      : 'All ' + N + ' games called';
+      : 'games called \\u2014 ready to submit';
     document.getElementById('stake').classList.toggle('done', left === 0);
     document.getElementById('meta').textContent = left
-      ? left + ' games left \\u00b7 ' + unassigned + ' points unassigned'
-      : 'Locks ' + new Date(DATA.lockAt).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'});
-    document.getElementById('send').disabled = left !== 0;
+      ? left + ' still to call \\u00b7 ' + unassigned + ' points unassigned'
+      : 'Locks ' + when(DATA.lockAt);
+    send.disabled = left !== 0;
+    send.textContent = left ? 'Pick all ' + N + ' to submit' : 'Submit picks';
   }
 
   app.addEventListener('click', function(e){
-    var undo = e.target.closest('[data-undo]');
-    if (undo) {
-      // Removing a pick shifts everything below it up one, so the numbers stay
-      // contiguous and the relative order the person chose survives.
-      order = order.filter(function(p){ return p.gameId !== undo.dataset.undo; });
-      return render();
+    var el = e.target.closest('[data-game]');
+    if (!el) return;
+    var i = indexOfPick(el.dataset.game);
+    if (i !== -1 && order[i].team === el.dataset.team) {
+      order.splice(i, 1);
+    } else if (i !== -1) {
+      order[i] = { gameId: el.dataset.game, team: el.dataset.team };
+    } else {
+      order.push({ gameId: el.dataset.game, team: el.dataset.team });
     }
-    var side = e.target.closest('[data-game]');
-    if (side) {
-      order.push({ gameId: side.dataset.game, team: side.dataset.team });
-      render();
-    }
+    paint();
   });
 
-  document.getElementById('send').addEventListener('click', async function(){
-    var btn = this, msg = document.getElementById('msg');
-    btn.disabled = true; msg.textContent = 'Saving\\u2026';
+  function popup(ok, title, body){
+    document.getElementById('card').classList.toggle('bad', !ok);
+    document.getElementById('vi').textContent = ok ? '\\u2713' : '!';
+    document.getElementById('vt').textContent = title;
+    document.getElementById('vp').textContent = body;
+    veil.hidden = false;
+    document.getElementById('vb').focus();
+  }
+  document.getElementById('vb').addEventListener('click', function(){ veil.hidden = true; });
+  veil.addEventListener('click', function(e){ if (e.target === veil) veil.hidden = true; });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') veil.hidden = true; });
+
+  send.addEventListener('click', async function(){
+    send.disabled = true;
+    var was = send.textContent;
+    send.textContent = 'Saving\\u2026';
     var picks = order.map(function(p, i){
       return { game_id: p.gameId, team: p.team, confidence: N - i };
     });
@@ -252,15 +285,23 @@ const CLIENT = `
         body: JSON.stringify({ token: TOKEN, picks: picks })
       });
       var out = await res.json().catch(function(){ return {}; });
-      msg.textContent = res.ok
-        ? 'Saved. You can change these until kickoff.'
-        : (out.error || 'That did not save. Try again.');
+      if (res.ok) {
+        var top = order[0], g = null;
+        DATA.games.forEach(function(x){ if (x.id === top.gameId) g = x; });
+        var name = g ? (g.home.abbr === top.team ? g.home.name : g.away.name) : top.team;
+        popup(true, 'Your picks are in',
+          'All ' + N + ' games ranked, with ' + N + ' points on ' + name +
+          '. You can change them until ' + when(DATA.lockAt) + '.');
+      } else {
+        popup(false, 'Not saved', out.error || 'Something went wrong. Try again.');
+      }
     } catch (err) {
-      msg.textContent = 'No connection. Try again.';
+      popup(false, 'Not saved', 'No connection. Your picks are still on screen \\u2014 try again.');
     }
-    btn.disabled = false;
+    send.textContent = was;
+    paint();
   });
 
-  render();
+  paint();
 })();
 `;

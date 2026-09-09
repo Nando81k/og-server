@@ -32,7 +32,7 @@ export async function verifyPickToken(token, secret, now = Date.now()) {
     );
     if (!valid) return null;
     const claims = JSON.parse(new TextDecoder().decode(unb64url(payload)));
-    if (typeof claims.exp !== 'number' || now > claims.exp) return null;
+    if (!Number.isFinite(claims.exp) || now > claims.exp) return null;
     return claims;
   } catch {
     return null;

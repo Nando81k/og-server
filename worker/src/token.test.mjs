@@ -33,5 +33,33 @@ const forged = btoa(JSON.stringify({ userId: '999', season: 2026, week: 1, exp: 
 check('rejects a swapped payload with a valid-looking signature',
   (await verifyPickToken(forged, secret, now)) === null);
 
+// Test cases for invalid exp values — construct bad payloads and sign them properly
+const enc = new TextEncoder();
+const b64url = (bytes) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+const keyForSigning = await crypto.subtle.importKey(
+  'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+);
+
+async function makeTokenWithBadExp(payloadJson) {
+  const payload = b64url(enc.encode(payloadJson));
+  const sig = await crypto.subtle.sign('HMAC', keyForSigning, enc.encode(payload));
+  return `${payload}.${b64url(sig)}`;
+}
+
+const infToken = await makeTokenWithBadExp('{"userId":"555","season":2026,"week":1,"exp":1e400}');
+check('rejects exp of Infinity', (await verifyPickToken(infToken, secret, now)) === null);
+
+const stringExpToken = await makeTokenWithBadExp('{"userId":"555","season":2026,"week":1,"exp":"9999999999999"}');
+check('rejects exp as a string', (await verifyPickToken(stringExpToken, secret, now)) === null);
+
+const missingExpToken = await makeTokenWithBadExp('{"userId":"555","season":2026,"week":1}');
+check('rejects exp absent', (await verifyPickToken(missingExpToken, secret, now)) === null);
+
+const nullExpToken = await makeTokenWithBadExp('{"userId":"555","season":2026,"week":1,"exp":null}');
+check('rejects exp as null', (await verifyPickToken(nullExpToken, secret, now)) === null);
+
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

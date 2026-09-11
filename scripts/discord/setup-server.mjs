@@ -37,6 +37,11 @@
 import { askVisible, askHidden } from './prompt.mjs';
 import { normalizeChannelName } from '../bot/lib.mjs';
 import {
+  VIEW_CHANNEL as VIEW_CHANNEL_BIT,
+  SEND_MESSAGES as SEND_MESSAGES_BIT,
+  withDeny, withAllow, isDenied, isAllowed,
+} from './permissions.mjs';
+import {
   TEXT,
   VOICE,
   SERVER_PLAN,
@@ -90,6 +95,70 @@ const MOD_PERMISSIONS = [
 ].reduce((a, b) => a | b, 0n).toString();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Card bots are fun in one room and a nuisance in nine. Their own role's
+ * permissions cannot confine them — role permissions are a union of allows, so
+ * @everyone keeps granting View Channel back — which means every category needs
+ * an explicit deny, and the one channel they belong in needs an explicit allow
+ * to override it.
+ */
+const CARD_BOTS = ['Karuta', 'Mudae'];
+const CARD_BOT_HOME = 'gacha';
+
+async function confineCardBot({ categoryByName, channelIdByName, roles }) {
+  const bots = roles.filter((r) => CARD_BOTS.includes(r.name));
+  if (bots.length === 0) return { denied: 0, allowed: 0, skipped: 0 };
+
+  const bits = VIEW_CHANNEL_BIT | SEND_MESSAGES_BIT;
+  let denied = 0;
+  let allowed = 0;
+  let skipped = 0;
+
+  for (const bot of bots) {
+    for (const cat of categoryByName.values()) {
+      let current;
+      try {
+        current = await discord('GET', `/channels/${cat.id}`);
+      } catch (err) {
+        console.warn(`! Could not read ${cat.name}: ${err.message}`);
+        continue;
+      }
+      if (isDenied(current.permission_overwrites, bot.id, bits)) {
+        skipped += 1;
+        continue;
+      }
+      const permission_overwrites = withDeny(current.permission_overwrites, bot.id, bits);
+      try {
+        await discord('PATCH', `/channels/${cat.id}`, { permission_overwrites });
+        console.log(`Denied ${bot.name} in ${cat.name}`);
+        denied += 1;
+        await sleep(300);
+      } catch (err) {
+        console.warn(`! Could not deny ${bot.name} in ${cat.name}: ${err.message}`);
+      }
+    }
+
+    // The home channel's own allow beats the category deny above it.
+    const homeId = channelIdByName.get(CARD_BOT_HOME);
+    if (!homeId) {
+      console.warn(`! No #${CARD_BOT_HOME} channel — ${bot.name} is now denied everywhere.`);
+      continue;
+    }
+    const home = await discord('GET', `/channels/${homeId}`);
+    if (isAllowed(home.permission_overwrites, bot.id, bits)) {
+      skipped += 1;
+      continue;
+    }
+    const permission_overwrites = withAllow(home.permission_overwrites, bot.id, bits);
+    await discord('PATCH', `/channels/${homeId}`, { permission_overwrites });
+    console.log(`Allowed ${bot.name} in #${CARD_BOT_HOME}`);
+    allowed += 1;
+    await sleep(300);
+  }
+
+  return { denied, allowed, skipped };
+}
 
 async function discord(method, path, body) {
   for (;;) {
@@ -312,6 +381,18 @@ async function main() {
     for (const chDef of section.channels) {
       await ensureChannel(chDef, cat, section.overwrites);
     }
+  }
+
+  const confined = await confineCardBot({
+    categoryByName,
+    channelIdByName,
+    roles: await discord('GET', `/guilds/${GUILD_ID}/roles`),
+  });
+  if (confined.denied || confined.allowed) {
+    console.log(
+      `Card bot confined: ${confined.denied} categories denied, ` +
+        `${confined.allowed} home channel allowed.`
+    );
   }
 
   // A channel with no topic reads as unfinished. These show in the header.

@@ -272,6 +272,42 @@ export async function runWeekly(env, api, deps = {}) {
   }
 }
 
+/**
+ * The daily trigger. Two independent jobs share it, and neither may take the
+ * other down: promotions failing is a nuisance, the pick'em failing on the
+ * week it launches is the season. They used to run in sequence unguarded, so
+ * a 401 on the member list — the one call in runPromotions that isn't caught
+ * — meant the leaderboard and the one-shot @everyone ping never ran at all,
+ * every day, for a reason that had nothing to do with them.
+ *
+ * Failures are still thrown, just last. Cloudflare marking the invocation
+ * failed is the only signal anyone sees from outside, and swallowing it would
+ * make a bot that has been broken for a week look identical to one that has
+ * nothing to do.
+ */
+export async function runCron(env, api, deps = {}) {
+  const { promotions = runPromotions, weekly = runWeekly } = deps;
+  const failures = [];
+
+  try {
+    const promo = await promotions(env, api);
+    console.log(`Promotion pass: ${promo.promoted} promoted, ${promo.skipped} not due yet.`);
+  } catch (err) {
+    console.error(`Promotion pass failed: ${err.message}`);
+    failures.push(`promotions: ${err.message}`);
+  }
+
+  try {
+    const week = await weekly(env, api);
+    console.log(`Pick'em: scored ${week.scored ?? 'nothing'}, synced ${week.synced ?? 'nothing'}.`);
+  } catch (err) {
+    console.error(`Pick'em run failed: ${err.message}`);
+    failures.push(`pick'em: ${err.message}`);
+  }
+
+  if (failures.length) throw new Error(failures.join('; '));
+}
+
 export default {
   async fetch(request, env) {
     // Handled before anything Discord-specific: Discord never calls /picks —
@@ -404,10 +440,6 @@ export default {
   },
 
   async scheduled(event, env) {
-    const api = createApi(env.DISCORD_TOKEN);
-    const promo = await runPromotions(env, api);
-    console.log(`Promotion pass: ${promo.promoted} promoted, ${promo.skipped} not due yet.`);
-    const week = await runWeekly(env, api);
-    console.log(`Pick'em: scored ${week.scored ?? 'nothing'}, synced ${week.synced ?? 'nothing'}.`);
+    return runCron(env, createApi(env.DISCORD_TOKEN));
   },
 };

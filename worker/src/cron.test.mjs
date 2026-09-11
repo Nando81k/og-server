@@ -1,4 +1,4 @@
-import { runWeekly } from './index.mjs';
+import { runWeekly, runCron } from './index.mjs';
 import { weekOneAnnouncement } from './announce.mjs';
 
 const fails = [];
@@ -278,6 +278,60 @@ console.log('\n--- week 1 announcement ---');
   check('the retry posts the announcement', posted.some((p) => p.ch === '777'));
   check('the retry scores the week', out.scored === 1);
   check('the ping was never lost', marks.has('announced:2026'));
+}
+
+console.log('\n--- the two jobs are independent ---');
+// They used to run in sequence, unguarded. runPromotions does not catch its
+// own member-list fetch, so a 401 there threw before the pick'em ran at all —
+// the less important job silently cancelling the season launch.
+{
+  let weeklyRan = false;
+  let threw = false;
+  try {
+    await runCron({}, {}, {
+      promotions: async () => { throw new Error('401 unauthorized'); },
+      weekly: async () => { weeklyRan = true; return { scored: 1, synced: 2 }; },
+    });
+  } catch { threw = true; }
+  check('a failed promotion pass still runs the pick\'em', weeklyRan);
+  check('a failed promotion pass is still reported', threw);
+}
+
+{
+  let promoRan = false;
+  let threw = false;
+  try {
+    await runCron({}, {}, {
+      promotions: async () => { promoRan = true; return { promoted: 1, skipped: 0 }; },
+      weekly: async () => { throw new Error('discord down'); },
+    });
+  } catch { threw = true; }
+  check('a failed pick\'em run still promoted members', promoRan);
+  check('a failed pick\'em run is still reported', threw);
+}
+
+{
+  // Both broken: neither is hidden by the other, and the run still fails.
+  let message = '';
+  try {
+    await runCron({}, {}, {
+      promotions: async () => { throw new Error('no roles'); },
+      weekly: async () => { throw new Error('no discord'); },
+    });
+  } catch (err) { message = err.message; }
+  check('both failures are named', /promotions: no roles/.test(message) && /pick'em: no discord/.test(message));
+}
+
+{
+  // The ordinary day: nothing thrown, so Cloudflare records a clean run.
+  let ok = true;
+  try {
+    await runCron({}, {}, {
+      promotions: async () => ({ promoted: 0, skipped: 3 }),
+      weekly: async () => ({ scored: null, synced: null }),
+    });
+  } catch { ok = false; }
+  check('a healthy run throws nothing', ok);
 }
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');

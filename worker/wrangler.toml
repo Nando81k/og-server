@@ -16,6 +16,16 @@ compatibility_date = "2026-09-01"
 [triggers]
 crons = ["0 9 * * *"]
 
+# Keep the logs. Without this, console.log and console.error exist only in the
+# moment — readable by `wrangler tail` and by nobody else, ever. The cron runs
+# unattended at 5am Eastern, which is precisely when no one is tailing, so a
+# failed promotion pass or a pick'em run that threw would leave behind a failed
+# invocation and no way to find out why. One run a day plus a handful of slash
+# commands is nowhere near any sampling limit, so keep every event.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # Secrets live in Cloudflare, never in this file. PICKS_SECRET is already set.
 # Still to set, both from the Discord Developer Portal:
 #   wrangler secret put DISCORD_TOKEN        (Bot tab -> Reset Token)

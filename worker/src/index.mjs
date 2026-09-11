@@ -31,7 +31,7 @@ import {
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
-import { weekOneAnnouncement } from './announce.mjs';
+import { weekOneAnnouncement, lockedMessage } from './announce.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -355,7 +355,20 @@ export default {
       const games = await getGames(env.DB, season, week);
       const exp = lockTime(games);
       if (Date.now() >= exp) {
-        return json({ type: REPLY, data: { content: `Week ${week} is locked.`, flags: 64 } });
+        // openWeek stays on this week until the cron scores it, so this reply
+        // is all the pick'em says for the several days between lock and
+        // scoring. It has to point somewhere.
+        return json({
+          type: REPLY,
+          data: {
+            content: lockedMessage({
+              week,
+              games,
+              leaderboardChannelId: env.LEADERBOARD_CHANNEL_ID,
+            }),
+            flags: 64,
+          },
+        });
       }
       const token = await signPickToken({ userId, season, week, exp }, env.PICKS_SECRET);
       const link = `${url.origin}/picks?t=${token}`;

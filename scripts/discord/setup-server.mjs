@@ -186,6 +186,12 @@ const allowView = (id) => ({ id, type: 0, allow: VIEW_CHANNEL, deny: '0' });
 // lands (same-position roles are tie-broken by id), so orderRoles() below sets
 // the hierarchy explicitly rather than trusting creation order.
 const ROLE_DEFS = [
+  // Carl-bot's automod exemption list refuses to offer any role that carries
+  // permissions, so Mod cannot be added to it — and Carl only auto-exempts
+  // Manage Server and Administrator, neither of which a mod should need. This
+  // carries no permissions at all, purely so Carl will accept it; whoever holds
+  // it is exempt. Grant it alongside Mod.
+  { name: 'Automod Exempt', color: 0 },
   { name: '18+', color: 0x992d22 },
   { name: 'Staten Island', color: 0 },
   { name: 'Queens', color: 0 },

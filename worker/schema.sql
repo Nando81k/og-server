@@ -32,3 +32,14 @@ CREATE TABLE IF NOT EXISTS teams (
   color      TEXT NOT NULL,
   alt_color  TEXT NOT NULL
 );
+
+-- What the weekly job has already done, so a step that succeeded is never
+-- repeated and a step that failed is never skipped. The scoring job used to
+-- rely on the games table alone: writing a week's winners is what advances
+-- openWeek, so once that write landed the week could never be reconsidered,
+-- and a Discord outage between the write and the post lost the post forever.
+-- Keys: "posted:<season>:<week>" and "announced:<season>".
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

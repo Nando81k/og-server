@@ -28,6 +28,7 @@ import {
   getGames, getPicks, savePicks, openWeek,
   upsertGames as dbUpsert, setResults as dbSetResults, allPicks as dbAllPicks,
   upsertTeams as dbUpsertTeams, getTeams,
+  alreadyDone as dbAlreadyDone, markDone as dbMarkDone,
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
@@ -127,6 +128,8 @@ export async function runWeekly(env, api, deps = {}) {
     upsertGames = dbUpsert,
     upsertTeams = dbUpsertTeams,
     allPicks = dbAllPicks,
+    alreadyDone = dbAlreadyDone,
+    markDone = dbMarkDone,
   } = deps;
   // getGames and openWeek are also imported plainly for use in fetch() below,
   // so their overridable-for-testing default can't be spelled as a
@@ -179,14 +182,20 @@ export async function runWeekly(env, api, deps = {}) {
   const stored = await getGames_(env.DB, season, week);
   const live = new Set(fresh.games.map((g) => g.id));
   const dropped = stored.filter((g) => !live.has(g.id)).map((g) => ({ ...g, winner: null, voided: true }));
-  await setResults(env.DB, season, week, [...fresh.games, ...dropped]);
+  // This week's finished games, not yet written down. Writing them is what
+  // advances openWeek — the one irreversible step here — so it happens last,
+  // after everything that can fail has succeeded. Scoring reads them from
+  // memory in the meantime; the shape ESPN returns already carries the id,
+  // winner, completed and voided fields scoreWeek looks at.
+  const settled = [...fresh.games, ...dropped];
+
   // Score every week of the season, not just this one: the posted table is
   // the season standings, and recomputing from stored rows is what makes a
   // second run of this job produce identical numbers.
   const rows = [];
   let seasonWeeks = 0;
   for (let w = 1; w <= week; w += 1) {
-    const weekGames = await getGames_(env.DB, season, w);
+    const weekGames = w === week ? settled : await getGames_(env.DB, season, w);
     if (weekGames.length === 0) continue;
     seasonWeeks += 1;
     const weekPicks = await allPicks(env.DB, season, w);
@@ -214,27 +223,43 @@ export async function runWeekly(env, api, deps = {}) {
     .map((r, i) => `${i + 1}. <@${r.userId}> — ${r.points} (+${weekPoints.get(r.userId) ?? 0} this week)`)
     .join('\n');
 
-  await api.postMessage(
-    env.LEADERBOARD_CHANNEL_ID,
-    `**Week ${week} is in.**\n${lines}` +
-      (everyWeek.length ? `\n\nEntered every week: ${everyWeek.join(', ')}` : '')
-  );
+  // Nothing below is caught. If Discord is unreachable the run must fail here,
+  // before the results write, so openWeek stays on this week and tomorrow's
+  // run does all of it again. A post that already landed is skipped by its
+  // marker, so retrying costs nobody a duplicate.
+  const postedKey = `posted:${season}:${week}`;
+  if (!(await alreadyDone(env.DB, postedKey))) {
+    await api.postMessage(
+      env.LEADERBOARD_CHANNEL_ID,
+      `**Week ${week} is in.**\n${lines}` +
+        (everyWeek.length ? `\n\nEntered every week: ${everyWeek.join(', ')}` : '')
+    );
+    await markDone(env.DB, postedKey);
+  }
 
   // The first scored week of the season is the moment the pick'em stops being
   // an idea and starts being a table with names in it — the only time a ping
-  // is worth spending. Week 1 scores exactly once (openWeek moves past it), so
-  // this cannot repeat. A failure here must not cost us the scoring above.
-  if (week === 1 && env.PICKEM_CHANNEL_ID) {
-    try {
-      await api.postMessage(
-        env.PICKEM_CHANNEL_ID,
-        weekOneAnnouncement({ leaderboardChannelId: env.LEADERBOARD_CHANNEL_ID }),
-        { parse: ['everyone'] }
-      );
-    } catch (err) {
-      console.warn(`Could not post the week 1 announcement: ${err.message}`);
-    }
+  // is worth spending.
+  //
+  // Tracked by its own marker rather than by `week === 1`, which is not a fact
+  // that survives a retry: the results write below is what moves openWeek off
+  // week 1, so under the old order a post that failed after that write could
+  // never be attempted again. A permanently bad PICKEM_CHANNEL_ID now stalls
+  // the season here instead, which is the failure worth having — a season that
+  // visibly stops is one somebody fixes, and a ping that vanishes silently is
+  // not.
+  const announcedKey = `announced:${season}`;
+  if (week === 1 && env.PICKEM_CHANNEL_ID && !(await alreadyDone(env.DB, announcedKey))) {
+    await api.postMessage(
+      env.PICKEM_CHANNEL_ID,
+      weekOneAnnouncement({ leaderboardChannelId: env.LEADERBOARD_CHANNEL_ID }),
+      { parse: ['everyone'] }
+    );
+    await markDone(env.DB, announcedKey);
   }
+
+  // Everything that can fail has succeeded. Advance the season.
+  await setResults(env.DB, season, week, settled);
 
   const next = week + 1;
   try {

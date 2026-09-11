@@ -116,3 +116,27 @@ export async function getTeams(db) {
   }
   return out;
 }
+
+/**
+ * A done-marker for a step the weekly job must do exactly once.
+ *
+ * Returns true when the mark was already there. Writing the winners for a
+ * week is what advances openWeek, so it cannot double as "this week has been
+ * announced" — a post that failed after that write would otherwise be
+ * unrepeatable, and a post that succeeded before a later failure would
+ * otherwise be repeated.
+ */
+export async function alreadyDone(db, key) {
+  const { results } = await db
+    .prepare(`SELECT value FROM meta WHERE key = ?`)
+    .bind(key)
+    .all();
+  return Boolean(results?.[0]);
+}
+
+export async function markDone(db, key, value = new Date().toISOString()) {
+  await db
+    .prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`)
+    .bind(key, value)
+    .run();
+}

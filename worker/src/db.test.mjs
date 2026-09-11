@@ -1,4 +1,4 @@
-import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams } from './db.mjs';
+import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams, alreadyDone, markDone } from './db.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -90,6 +90,29 @@ check('maps snake_case columns to the shape the form expects',
 
 const dbEmpty = fakeDb([]);
 check('an empty teams table yields an empty map', Object.keys(await getTeams(dbEmpty)).length === 0);
+
+console.log('\n--- done markers ---');
+// These gate the weekly job's two Discord posts. A false negative sends a
+// duplicate @everyone; a false positive silently skips the post entirely.
+const dbMarkMissing = fakeDb([]);
+check('an unmarked key reads as not done', (await alreadyDone(dbMarkMissing, 'posted:2026:1')) === false);
+check('the lookup is scoped to the key', dbMarkMissing.statements[0].binds[0].includes('posted:2026:1'));
+
+const dbMarkPresent = fakeDb([{ value: '2026-09-15T09:00:00.000Z' }]);
+check('a marked key reads as done', (await alreadyDone(dbMarkPresent, 'posted:2026:1')) === true);
+
+const dbMarkWrite = fakeDb();
+await markDone(dbMarkWrite, 'announced:2026', 'now');
+check('marking writes one statement', dbMarkWrite.statements.length === 1);
+check('marking binds key and value', dbMarkWrite.statements[0].binds[0].join('|') === 'announced:2026|now');
+// Two runs racing on the same marker must not make the second one throw and
+// take down a run that had otherwise succeeded.
+check('marking twice is not an error', /ON CONFLICT\(key\) DO NOTHING/i.test(dbMarkWrite.statements[0].sql));
+
+const dbMarkDefault = fakeDb();
+await markDone(dbMarkDefault, 'posted:2026:2');
+check('marking defaults the value to a timestamp',
+  !Number.isNaN(Date.parse(dbMarkDefault.statements[0].binds[0][1])));
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

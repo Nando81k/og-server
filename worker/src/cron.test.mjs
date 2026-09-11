@@ -21,8 +21,15 @@ const env = {
   DB: { /* injected through deps below in this test */ },
 };
 
+// Stands in for the meta table. Reset alongside `posted` — a marker left over
+// from a previous block would silently suppress the next block's posts, which
+// is exactly the bug these markers exist to cause on purpose in production.
+const marks = new Set();
+
 const deps = {
   now: Date.parse('2026-09-15T09:00:00Z'),
+  alreadyDone: async (_db, key) => marks.has(key),
+  markDone: async (_db, key) => { marks.add(key); },
   fetchWeek: async ({ week }) => ({
     season: 2026, week,
     games: [{ id: '1', kickoff: '2026-09-13T17:00Z', home: 'KC', away: 'BAL', winner: 'KC', completed: true, voided: false }],
@@ -44,6 +51,7 @@ check('syncs the following week', out.synced === 2);
 
 // ESPN failing must not post anything or half-score.
 posted.length = 0;
+marks.clear();
 const broken = { ...deps, fetchWeek: async () => { throw new Error('espn down'); } };
 const out2 = await runWeekly(env, api, broken);
 check('does nothing when the feed is down', out2.scored === null);
@@ -53,6 +61,7 @@ check('posts nothing when the feed is down', posted.length === 0);
 // anything has ever been seeded. runWeekly must seed the current week from
 // ESPN's own scoreboard rather than sitting silent forever.
 posted.length = 0;
+marks.clear();
 {
   let seededSeason, seededWeek, seededGames;
   const seedGames = [
@@ -90,6 +99,7 @@ posted.length = 0;
 // games untouched, post nothing, and ask again next run.
 {
   posted.length = 0;
+  marks.clear();
   const before = JSON.parse(JSON.stringify(state.games));
   let setResultsCalled = false;
   const emptySlateDeps = {
@@ -111,6 +121,7 @@ posted.length = 0;
 // carry both the season total and that week's points.
 {
   posted.length = 0;
+  marks.clear();
   const weeks = {
     3: { id: 'g3', home: 'KC', away: 'BAL', winner: 'KC', kickoff: '2026-09-27T17:00Z' },
     4: { id: 'g4', home: 'SF', away: 'SEA', winner: 'SF', kickoff: '2026-10-04T17:00Z' },
@@ -163,6 +174,7 @@ console.log('\n--- week 1 announcement ---');
 
 {
   posted.length = 0;
+  marks.clear();
   state.games[0].winner = null;
   const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, api, deps);
   check('still scores the week', out.scored === 1);
@@ -181,6 +193,7 @@ console.log('\n--- week 1 announcement ---');
 
 {
   posted.length = 0;
+  marks.clear();
   state.games[0].winner = null;
   const out = await runWeekly(env, api, deps);
   check('posts only the leaderboard when no pickem channel is set',
@@ -189,6 +202,7 @@ console.log('\n--- week 1 announcement ---');
 
 {
   posted.length = 0;
+  marks.clear();
   state.games[0].winner = null;
   const wk2 = {
     ...deps,
@@ -205,6 +219,7 @@ console.log('\n--- week 1 announcement ---');
 
 {
   posted.length = 0;
+  marks.clear();
   state.games[0].winner = null;
   const flaky = {
     postMessage: async (ch, content, mentions) => {
@@ -212,11 +227,57 @@ console.log('\n--- week 1 announcement ---');
       posted.push({ ch, content, mentions });
     },
   };
-  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, flaky, deps);
-  check('a failed announcement still scores the week', out.scored === 1);
-  check('a failed announcement still leaves the leaderboard posted',
-    posted.length === 1 && posted[0].ch === '999');
-  check('a failed announcement still syncs the next week', out.synced === 2);
+  // The announcement must NOT be swallowed. Writing a week's winners is what
+  // advances openWeek, so a run that commits and then fails to announce can
+  // never announce again — the ping is spent and nothing was sent. Failing
+  // before the commit is what buys the retry.
+  let threw = false;
+  try {
+    await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, flaky, deps);
+  } catch (err) {
+    threw = true;
+  }
+  check('a failed announcement fails the run', threw);
+  check('a failed announcement leaves the week unscored', state.games[0].winner === null);
+  check('the leaderboard it did send is recorded', marks.has('posted:2026:1'));
+  check('the announcement is not recorded', !marks.has('announced:2026'));
+
+  // Tomorrow's run, same markers: the leaderboard is skipped, the
+  // announcement is retried, and the week finally commits.
+  posted.length = 0;
+  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, api, deps);
+  check('the retry does not repeat the leaderboard', !posted.some((p) => p.ch === '999'));
+  check('the retry sends the announcement', posted.some((p) => p.ch === '777'));
+  check('the retry scores the week', out.scored === 1);
+  check('the retry records the announcement', marks.has('announced:2026'));
+}
+
+// The original bug: the leaderboard post had no error handling and ran after
+// the write that advances openWeek. A Discord hiccup there lost both the
+// standings and the one-shot ping for good, because week 1 could never be
+// scored a second time.
+{
+  posted.length = 0;
+  marks.clear();
+  state.games[0].winner = null;
+  const dead = { postMessage: async () => { throw new Error('401 unauthorized'); } };
+
+  let threw = false;
+  try {
+    await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, dead, deps);
+  } catch {
+    threw = true;
+  }
+  check('a failed leaderboard fails the run', threw);
+  check('a failed leaderboard leaves the week unscored', state.games[0].winner === null);
+  check('a failed leaderboard records nothing', marks.size === 0);
+
+  // Discord comes back. Nothing was lost.
+  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, api, deps);
+  check('the retry posts the leaderboard', posted.some((p) => p.ch === '999'));
+  check('the retry posts the announcement', posted.some((p) => p.ch === '777'));
+  check('the retry scores the week', out.scored === 1);
+  check('the ping was never lost', marks.has('announced:2026'));
 }
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');

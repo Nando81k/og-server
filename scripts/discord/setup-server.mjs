@@ -97,16 +97,24 @@ const MOD_PERMISSIONS = [
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Card bots are fun in one room and a nuisance in nine. Their own role's
- * permissions cannot confine them — role permissions are a union of allows, so
- * @everyone keeps granting View Channel back — which means every category needs
- * an explicit deny, and the one channel they belong in needs an explicit allow
- * to override it.
+ * Card bots are fun in one room and a nuisance in forty.
+ *
+ * Two things about Discord's model make this less obvious than it looks:
+ *
+ *   1. Role permissions are a UNION of allows. Taking View Channel away from
+ *      the bot's own role subtracts nothing while @everyone still grants it.
+ *   2. Categories do not grant permissions to their channels at run time.
+ *      Syncing COPIES overwrites down once; a channel that is not synced keeps
+ *      its own set. Every channel here was created with its own list, so a deny
+ *      placed on the category reaches none of them.
+ *
+ * So the deny has to land on every channel individually, with an allow on the
+ * one channel the bot belongs in.
  */
 const CARD_BOTS = ['Karuta', 'Mudae'];
 const CARD_BOT_HOME = 'gacha';
 
-async function confineCardBot({ categoryByName, channelIdByName, roles }) {
+async function confineCardBot({ roles }) {
   const bots = roles.filter((r) => CARD_BOTS.includes(r.name));
   if (bots.length === 0) return { denied: 0, allowed: 0, skipped: 0 };
 
@@ -115,46 +123,35 @@ async function confineCardBot({ categoryByName, channelIdByName, roles }) {
   let allowed = 0;
   let skipped = 0;
 
+  const channels = await discord('GET', `/guilds/${GUILD_ID}/channels`);
+  const home = channels.find((c) => normalizeChannelName(c.name) === CARD_BOT_HOME);
+
   for (const bot of bots) {
-    for (const cat of categoryByName.values()) {
-      let current;
-      try {
-        current = await discord('GET', `/channels/${cat.id}`);
-      } catch (err) {
-        console.warn(`! Could not read ${cat.name}: ${err.message}`);
-        continue;
-      }
-      if (isDenied(current.permission_overwrites, bot.id, bits)) {
+    if (!home) {
+      console.warn(`! No #${CARD_BOT_HOME} channel — ${bot.name} would be denied everywhere.`);
+      continue;
+    }
+    for (const ch of channels) {
+      const isHome = ch.id === home.id;
+      const satisfied = isHome
+        ? isAllowed(ch.permission_overwrites, bot.id, bits)
+        : isDenied(ch.permission_overwrites, bot.id, bits);
+      if (satisfied) {
         skipped += 1;
         continue;
       }
-      const permission_overwrites = withDeny(current.permission_overwrites, bot.id, bits);
+      const merge = isHome ? withAllow : withDeny;
+      const permission_overwrites = merge(ch.permission_overwrites, bot.id, bits);
       try {
-        await discord('PATCH', `/channels/${cat.id}`, { permission_overwrites });
-        console.log(`Denied ${bot.name} in ${cat.name}`);
-        denied += 1;
-        await sleep(300);
+        await discord('PATCH', `/channels/${ch.id}`, { permission_overwrites });
+        console.log(`${isHome ? 'Allowed' : 'Denied'} ${bot.name} in ${ch.name}`);
+        if (isHome) allowed += 1;
+        else denied += 1;
+        await sleep(250);
       } catch (err) {
-        console.warn(`! Could not deny ${bot.name} in ${cat.name}: ${err.message}`);
+        console.warn(`! Could not update ${ch.name} for ${bot.name}: ${err.message}`);
       }
     }
-
-    // The home channel's own allow beats the category deny above it.
-    const homeId = channelIdByName.get(CARD_BOT_HOME);
-    if (!homeId) {
-      console.warn(`! No #${CARD_BOT_HOME} channel — ${bot.name} is now denied everywhere.`);
-      continue;
-    }
-    const home = await discord('GET', `/channels/${homeId}`);
-    if (isAllowed(home.permission_overwrites, bot.id, bits)) {
-      skipped += 1;
-      continue;
-    }
-    const permission_overwrites = withAllow(home.permission_overwrites, bot.id, bits);
-    await discord('PATCH', `/channels/${homeId}`, { permission_overwrites });
-    console.log(`Allowed ${bot.name} in #${CARD_BOT_HOME}`);
-    allowed += 1;
-    await sleep(300);
   }
 
   return { denied, allowed, skipped };
@@ -384,8 +381,6 @@ async function main() {
   }
 
   const confined = await confineCardBot({
-    categoryByName,
-    channelIdByName,
     roles: await discord('GET', `/guilds/${GUILD_ID}/roles`),
   });
   if (confined.denied || confined.allowed) {

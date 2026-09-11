@@ -80,6 +80,7 @@ before the server went public. Full stop. Everyone else earns `Veteran`.
 | **Carl-bot** | Autorole, reaction roles, starboard (⭐×3 → `⭐┃highlights`), logging, automod | carl.gg dashboard |
 | **Sesh** | Event creation and RSVPs | `📍┃irl-plans` |
 | **Karuta** | Collectible card game | Confined to `🎴┃gacha` — see §4 |
+| **Jockie Music** ×4 | Music, four linked accounts | All voice rooms — on trial, see below |
 
 **OG Bot is an HTTP-interaction bot, not a gateway bot.** Discord calls the
 Worker's URL with a signed request when someone runs a command. It shows as
@@ -96,21 +97,52 @@ Deliberately **not** installed: Dyno or MEE6 — Carl-bot already covers logging
 automod, autorole, reaction roles, starboard and levelling, and two mod bots
 means double-logging and conflicting rules.
 
-**Music is wanted** (this reverses an earlier decision to skip it). The
-category is unusually unstable: Groovy and Rythm, the two largest music bots
-ever made, were shut down in 2021 after Google's lawyers objected to them
-streaming from YouTube, and everything since works the same way. Whatever gets
-installed can disappear without notice, so nothing should depend on it.
-[Jockie](https://www.jockiemusic.com/) is the current pick, specifically
-because it runs as four linked bot accounts: a music bot occupies one voice
-channel at a time, and with eight voice rooms a single-instance bot is
-permanently busy. Discord's own Watch Together activity and Spotify's Listen
-Along are the durable alternatives for `🔊 Watch Party`, since no cease-and-
-desist can take them away.
+### Music
 
-A music bot needs no permission setup. It is already shut out of MOD, OG and
-AFTER HOURS by those channels' own overwrites — see §4 — and everywhere else
-is where it belongs.
+Wanted, reversing an earlier decision to skip it. The category is unusually
+unstable: Groovy and Rythm, the two largest music bots ever made, were shut
+down in 2021 after Google's lawyers objected to them streaming from YouTube,
+and everything since works the same way. Whatever is installed can disappear
+without notice, so nothing should depend on it.
+
+**The requirement that decides this choice is multiple instances.** A music bot
+occupies one voice channel at a time. With eight voice rooms, a single-instance
+bot is whoever-asked-first's, and everybody else waits.
+
+**[Jockie](https://www.jockiemusic.com/) is installed** — all four accounts
+(`Jockie Music`, `(1)`, `(2)`, `(3)`), prefix `m!`. Verified working: it joins a
+voice room and plays on `m!play`. What was *not* verified is the four-rooms-at-
+once behaviour, because testing it needs two voice channels at once and
+Discord drops a browser session out of voice the moment the same account
+connects from the desktop app.
+
+**Its limitation is that it has no slash commands.** Confirmed by typing
+`/play` in the server — only Carl-bot's commands appear — and by its own
+published list of 227 commands, which is entirely prefix-based and includes
+commands for managing prefixes and autocorrecting mistyped ones. The cost is
+that picking a specific track takes two messages: `m!search <song>` returns a
+numbered list, `m!select <n>` takes one. Plain `m!play` grabs the top hit,
+which is often a remix or a sped-up edit.
+
+**[Chip](https://chipbot.gg/) is the evaluated alternative** and is better on
+exactly that point. Its [documented commands](https://chipbot.gg/commands) are
+slash commands, and `/search <song>` returns a dropdown to click rather than a
+number to type. It ships four invites too — `Chip`, `Chip 2`, `Chip 3` and
+`Chip Beta` — so three stable instances against Jockie's four. Note that
+neither bot does type-ahead suggestion of song names while typing; both
+require sending a search first.
+
+Not yet decided. Running both means eight music bots, so whichever wins, the
+other should be removed.
+
+**Durable alternatives for `🔊 Watch Party`:** Discord's own Watch Together
+activity and Spotify's Listen Along. No cease-and-desist can take those away,
+which is worth something in a category where the two biggest names died
+overnight.
+
+**No music bot needs permission setup.** Every bot is already shut out of MOD,
+OG and AFTER HOURS by those channels' own overwrites — see §4 — and everywhere
+else is where a music bot belongs.
 
 ---
 
@@ -154,7 +186,7 @@ to stay out of the private areas needs no entry and no setup.
 
 Carl-bot logs to `📕┃warn-log`: deletes, edits, purges, joins and leaves, role
 changes, nickname and avatar changes, bans, unbans, timeouts. Voice events are
-off — with five standing voice rooms they would bury everything else.
+off — with eight standing voice rooms they would bury everything else.
 
 Automod, all set to delete the message only:
 
@@ -178,6 +210,23 @@ varying with byes. Picks lock at the first kickoff of the week. A week is scored
 which is why the leaderboard stays quiet mid-week by design. Scoring posts
 standings to `📊┃season-leaderboard`, and the first scored week of a season also
 fires a one-off `@everyone` post to `📝┃pickem`.
+
+**The order of that job is deliberate and was wrong once.** Writing a week's
+winners is what advances the open week, so it happens *last* — after both posts
+have succeeded. Under the original order the write came first, which made the
+posts unrepeatable: a Discord failure mid-run left the week marked scored, the
+next day's run found nothing to score, and the standings and the one-shot ping
+were gone with only a log line nobody reads. Scoring now reads the week's
+results from memory, posts, and only then commits, so any failure simply
+retries the next morning. Retrying safely needs the posts to be idempotent, and
+the games table cannot record that — writing to it is what ends the week — so a
+`meta` table holds done-markers, one per post, each written the moment its post
+lands.
+
+The two jobs on the daily trigger — promotions and the pick'em — each carry
+their own error handling, so a failure in one cannot cancel the other. They
+were a single unguarded sequence once, which meant a rate-limited member fetch
+could silently cost the season its launch.
 
 ---
 

@@ -20,7 +20,7 @@ import {
   isDueForPromotion,
   clampSlots,
   isChannelNamed,
-} from '../../scripts/bot/lib.mjs';
+} from '../../shared/lib.mjs';
 import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
 import { validateSubmission, lockTime } from './validate.mjs';

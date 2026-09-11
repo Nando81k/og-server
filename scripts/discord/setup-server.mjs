@@ -35,7 +35,7 @@
  */
 
 import { askVisible, askHidden } from './prompt.mjs';
-import { normalizeChannelName } from '../bot/lib.mjs';
+import { normalizeChannelName } from '../../shared/lib.mjs';
 import {
   VIEW_CHANNEL as VIEW_CHANNEL_BIT,
   SEND_MESSAGES as SEND_MESSAGES_BIT,

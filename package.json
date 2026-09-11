@@ -3,18 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Setup script and bot for the OG Discord server",
+  "description": "Setup scripts and Cloudflare Worker for the OG Discord server",
   "scripts": {
     "setup": "node scripts/discord/setup-server.mjs",
-    "bot": "node scripts/bot/index.mjs",
-    "test": "for f in scripts/bot/lib.test.mjs scripts/discord/*.test.mjs worker/src/*.test.mjs; do node $f || exit 1; done",
+    "test": "for f in shared/*.test.mjs scripts/discord/*.test.mjs worker/src/*.test.mjs; do node $f || exit 1; done",
     "register": "node scripts/discord/register-commands.mjs",
     "seed": "node scripts/discord/seed-channels.mjs"
   },
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "discord.js": "^14.16.3"
   }
 }

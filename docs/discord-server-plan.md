@@ -1,179 +1,179 @@
-# Discord Server Blueprint — NYC Gamer Crew
+# The OGs Server
 
-A build plan for a Discord server that starts as a tight friend group (sports, pop-culture
-betting, deep-talk, smoke sessions) and can grow into a community without losing the
-core. Design principle throughout: **public shell, private core** — grow the shell,
-protect the core.
+A Discord server for a NYC friend group of anime watchers and gamers. Design
+principle throughout: **public shell, private core** — grow the shell, protect
+the core.
+
+This document describes the server **as it actually is**. Where an earlier plan
+was abandoned, the reason is recorded, because the reasons are the useful part.
 
 ---
 
-## 1. Server structure (categories → channels)
+## 1. Structure
+
+Every channel carries an emoji so the sidebar is scannable. Discord lowercases
+text channel names and turns spaces into hyphens, so a heavy bar `┃` separates
+the icon from the name; voice channel names are left alone by Discord and take a
+plain space.
+
+The **plain slug** is each channel's identity — topics and guides are keyed by
+it, and lookups normalize the decoration away — so emoji can be changed freely
+in `scripts/discord/channel-names.mjs` without breaking anything.
 
 ```
-📋 START HERE  (public, @everyone)
- ├─ #welcome-rules
- ├─ #onboarding            (Discord's built-in flow: pick games, borough, interests)
- └─ #announcements
-
-💬 GENERAL  (public)
- ├─ #general-chat
- ├─ #sports-talk
- ├─ #pop-culture
- ├─ #deep-thoughts          (life talk, no sports/games allowed — keeps it a real channel)
- └─ #highlights             (shareable: best memes, best takes, tourney results — growth engine)
-
-🏙️ NYC  (public)
- ├─ #irl-plans              (RSVP bot: watch parties, Knicks/Nets, park runs)
- ├─ #bodega-tier-list
- └─ #mta-complaints
-
-🎮 GAMES  (public, role-gated per game via reaction/onboarding menu)
- ├─ #lfg                    (bot channel: /lfg 2k 3, /lfg cod 4, etc.)
- ├─ #2k
- ├─ #cod
- ├─ #madden
- ├─ #fighting-games
- ├─ 🔊 2K Voice / CoD Voice / Madden Voice / Fighting Games Voice
- └─    (standing rooms — /lfg points at these rather than making disposable ones)
-
-📺 ANIME  (public)
- ├─ #anime                  (the main room)
- ├─ #currently-watching     (this season, week by week — spoiler-tagged)
- ├─ #manga                  (assume everyone here is ahead of the anime)
- ├─ #recommendations
- ├─ #gacha                  (card bots confined here, not loose in #general-chat)
- └─ 🔊 Watch Party
-
-🏆 SEASON + TOURNAMENTS  (public)
- ├─ #season-leaderboard     (pick'em + memes + aux battles + tournaments → one score)
- ├─ #pickem
- ├─ #brackets               (Challonge-linked brackets for 2K / fighting game tourneys)
- └─ #game-of-the-month
-
-🏈 FANTASY  (public, forum channels — one per league so trash talk doesn't collide)
- ├─ 📌 #nfl-fantasy-forum
- ├─ 📌 #nba-fantasy-forum
- ├─ #standings              (bot: /standings pulls both leagues)
- ├─ #trade-court            (proposed trades voted fair/collusion/robbery, 24h)
- └─ 🔊 Draft Night           (voice + pinned pick-timer message, mirrored in text)
-
-🔞 AFTER HOURS  (18+ age-gated, unlocked after onboarding age check)
- └─ #smoke-lounge            (moved into OG category — see below — but gated 18+ either way)
-
-🛡️ MOD  (private, mod role only)
- ├─ #mod-chat
- ├─ #warn-log
- └─ #invite-tracking
-
-🔒 OG  (private category — deny @everyone View Channel, allow only @OG role)
- ├─ #og-chat
- ├─ #og-plans
- ├─ #og-hall-of-fame        (archive: old memes, original prop bets, pre-community screenshots)
- └─ 🔊 og-voice
-      (smoke-lounge lives here too, or stays in its own category with the same
-       permission override — either way @everyone is denied and @OG is allowed)
+📋 START HERE        📌┃welcome-rules  🚪┃onboarding  📣┃announcements
+💬 GENERAL           💬┃general-chat  🏟️┃sports-talk  🎬┃pop-culture
+                     🌙┃deep-thoughts  ⭐┃highlights  🔊 General Voice
+🗽 NYC               📍┃irl-plans  🥪┃bodega-tier-list  🚇┃mta-complaints
+🎮 GAMES             🔎┃lfg  🏀┃2k  🎯┃cod  🏈┃madden  👊┃fighting-games
+                     🔊 2K Voice  🔊 CoD Voice  🔊 Madden Voice
+                     🔊 Fighting Games Voice
+📺 ANIME             🌸┃anime  📆┃currently-watching  📖┃manga
+                     🧭┃recommendations  🎴┃gacha  🔊 Watch Party
+🏆 SEASON + TOURNAMENTS
+                     📊┃season-leaderboard  📝┃pickem  🗂️┃brackets
+                     🕹️┃game-of-the-month
+🐐 FANTASY           🏈┃nfl-fantasy-forum  🏀┃nba-fantasy-forum  📈┃standings
+                     ⚖️┃trade-court  🔊 Draft Night
+🔞 AFTER HOURS       💨┃smoke-lounge                    (18+ only)
+🛡️ MOD               🧰┃mod-chat  📕┃warn-log  🔗┃invite-tracking   (private)
+🔒 OG                🥇┃og-chat  🗺️┃og-plans  🏛️┃og-hall-of-fame
+                     🔊 OG Voice                                    (private)
 ```
 
-**Permission rule of thumb:** set permission overrides at the *category* level, not
-per-channel. New channels dropped into a category inherit its overrides automatically.
-The OG category denies `View Channel` to `@everyone` and allows it for both `OG`
-and `Mod`, so a mod can moderate OG space without having to be an OG.
+Every text channel opens with a **pinned post explaining what it's for**; the two
+forums use Discord's Guidelines field instead, plus filterable tags. Both live in
+`scripts/discord/channel-guides.mjs` and are applied by `npm run seed`.
+
+No channel inherits from its category at run time, which is why confining a
+bot means touching all 44 channels rather than one category — see §4.
 
 ---
 
-## 2. Roles (top → bottom in the member list)
+## 2. Roles
 
-| Role | Color | Who | Access |
-|---|---|---|---|
-| `OG` | distinct/bright, near top | Manually assigned. Was in the group chat before the server went public. Never earnable. | Everything, including 🔒 OG category |
-| `Veteran` | secondary color | Earned over time (e.g. 6–12 months active) or vouched by an existing member | Some gated channels (define which up front), not the OG category |
-| `Mod` | own color, own icon if using role icons | Trusted members you promote | Mod category, warn/timeout powers, and visibility into the OG category so they can moderate it |
-| `Member` | default | Passed onboarding | Public shell + unlocked-after-a-week channels |
-| `New Member` | default, muted | Just joined | Public channels only until 1 week / vouch |
-| Game roles (`2K`, `CoD`, `Madden`, `FGC`) | none needed | Self-assigned via reaction/onboarding menu | Pings for that game. The channels are public. |
-| `Watch Party` | none needed | Self-assigned | Pinged when a watch is starting |
-| Borough roles (`Bronx`, `Brooklyn`, `Manhattan`, `Queens`, `Staten Island`) | none needed | Self-assigned | Cosmetic + used for "who's nearby" in #irl-plans |
-| `18+` | none needed | Self-assigned with a real age gate step in onboarding | Unlocks #smoke-lounge and any NSFW channel |
-| Punishment role (e.g. `Fantasy Last Place`) | ugly/embarrassing color | Auto-assigned by fantasy bot | Forced nickname change until next draft |
+Top to bottom as they sit in Discord:
 
-**Borderline-member rule (decide this now, in writing, so it's never a live argument):**
-`OG` = was in the group chat before the server went public. Full stop, no exceptions.
-Everyone else — the friend of a friend, the guy active for a year — earns `Veteran`
-instead, which grants *some* access, not all.
-
----
-
-## 3. Bots to install
-
-| Bot | Purpose | Notes |
+| Role | Who | Notes |
 |---|---|---|
-| Discord's built-in **Onboarding** | Pick games / borough / interests on join | No-code, native, good in 2025+ |
-| Custom or **Carl-bot** | Reaction-role menu for games + boroughs + 18+ | Carl-bot's reaction roles cover this without custom code |
-| Custom **LFG bot** | `/lfg 2k 3` → temp voice channel, pings role, auto-deletes when empty | Small custom bot; simplest is a slash command + `voiceStateUpdate` cleanup check |
-| **Sleeper** (official Discord bot) | Posts trades/waivers/matchup scores for the Sleeper league (NFL) | Free, no code, best-in-class for this |
-| Custom **League Hub bot** | `/standings` pulls Sleeper (NFL) + ESPN/Yahoo (NBA) into one embed; Tuesday auto-post of week's scores, biggest blowout, worst bench decision | Needs a small script hitting Sleeper's public API + ESPN's unofficial API on a cron |
-| Custom **Trade Court** logic | Posts proposed trade, opens a 24h fair/collusion/robbery vote, applies result | Can reuse the same vote-tallying logic as a season-points/bet bot |
-| Custom **Season Points bot** | Tracks pick'em, meme contests, aux battles, tournament results, fantasy finishes into one leaderboard | The unifying piece — see §4 |
-| **Dyno** or custom mod bot | Warn/timeout log, invite tracking | Set this up *before* you need it |
-| Challonge (via API) or custom bracket logic | Tournament brackets for 2K / fighting games | Challonge API is the fast path; reuse bet-bot vote logic if rolling your own |
-| RSVP bot (custom or **Sesh**) | Event creation + RSVPs in #irl-plans | Sesh is a solid off-the-shelf option |
+| `OG` | Was in the group chat before the server went public | Never earnable. Not a grind, and asking doesn't move it. |
+| `Veteran` | Earned over time | The rank everyone else works toward. Currently unused. |
+| `Mod` | Trusted members | Kick, ban, timeout, manage messages, manage threads, manage nicknames, view audit log, and mute / deafen / move in voice. Deliberately **not** Manage Server. |
+| `Member` | Passed a week | Promoted automatically from `New Member` by the Worker's daily cron. |
+| `New Member` | Just joined | Applied by Carl-bot autorole. |
+| `Watch Party` | Self-assigned | Pinged when a watch starts. |
+| Game roles | Self-assigned via Onboarding | `2K`, `CoD`, `Madden`, `Fighting Games` — `/lfg` pings these. |
+| Borough roles | Self-assigned | Bronx, Brooklyn, Manhattan, Queens, Staten Island. |
+| `18+` | Onboarding age question only | **Never** a reaction role — that would let anyone grant themselves access to age-restricted content. |
+| `Automod Exempt` | Granted alongside `Mod` | No permissions at all. Exists because Carl-bot's exemption list refuses any role that carries permissions — see §4. |
+
+**The borderline-member rule, in writing:** `OG` means you were in the group chat
+before the server went public. Full stop. Everyone else earns `Veteran`.
 
 ---
 
-## 4. Season points — the unifying growth mechanic
+## 3. Bots
 
-One leaderboard, fed by everything:
+| Bot | Does | Where |
+|---|---|---|
+| **OG Bot** (custom) | `/lfg`, `/picks`, the weekly pick'em cron, `New Member` → `Member` promotion | `worker/` — a Cloudflare Worker |
+| **Carl-bot** | Autorole, reaction roles, starboard (⭐×3 → `⭐┃highlights`), logging, automod | carl.gg dashboard |
+| **Sesh** | Event creation and RSVPs | `📍┃irl-plans` |
+| **Karuta** | Collectible card game | Confined to `🎴┃gacha` — see §4 |
 
-- Pick'em correct picks
-- Meme-of-the-week wins
-- Aux battle wins
-- Tournament placements (2K, fighting games, game-of-the-month tourney)
-- Fantasy football / basketball finishes (big bonus for league champ, punishment role
-  for last place until next draft)
+**OG Bot is an HTTP-interaction bot, not a gateway bot.** Discord calls the
+Worker's URL with a signed request when someone runs a command. It shows as
+*Offline* in the member list and that is correct — there is no connection to
+hold open, which is exactly why it runs free with no always-on host.
 
-Real prize at season end (trophy, IRL dinner, whatever) — this is what gives strangers
-a reason to stick around long enough to become community, not just lurkers.
+An earlier design had `/lfg` create a **disposable voice channel** per session
+and delete it when empty. That was abandoned: Discord's REST API exposes one
+user's voice state but never a list, so nothing without a gateway connection can
+tell whether a room has emptied. Standing rooms — one per game — sidestep it
+entirely. The gateway bot that implemented the old design has been deleted.
 
-OG-only perks layered on top of the same bot: a special leaderboard tag, tiebreaker
-votes on server decisions, first dibs on tournament slots.
-
----
-
-## 5. Fantasy leagues
-
-- **NFL** on Sleeper — its Discord bot does trades/waivers/scores natively, no code.
-- **NBA** on ESPN or Yahoo (Sleeper doesn't do NBA) — pull weekly scores/standings via
-  their unofficial APIs on a small cron script.
-- Unify both under one `/standings` command and the Tuesday auto-recap
-  (scores, blowout, worst bench decision — this is the feature people actually read).
-- **Trade court**: proposed trade posts to #trade-court, 24h fair/collusion/robbery
-  vote, removes commissioner-veto drama.
-- **Draft night mode**: voice channel + pick timer mirrored in text, anonymous
-  "grade this pick" reaction per selection.
-- Keep the **OG league** locked to OGs. Once the community grows, run a second, open
-  league — two leagues means two draft nights, two watch parties, two sets of side
-  bets, and keeps OG fantasy trash talk from drowning in newcomers.
+Deliberately **not** installed: Dyno or MEE6 (Carl-bot already covers logging,
+automod, autorole, reaction roles, starboard and levelling — two mod bots means
+double-logging and conflicting rules), and music bots.
 
 ---
 
-## 6. Rollout order
+## 4. Discord permission gotchas
 
-1. **Week 1** — Core structure: categories/channels above, roles, OG category locked
-   down first (before anyone new ever joins), onboarding flow live, age gate live.
-2. **Week 1–2** — Bots: Onboarding + reaction roles, LFG bot, mod bot with warn/timeout
-   log, invite tracking on from day one.
-3. **Week 2–3** — Season points bot (even in a simple spreadsheet-backed form) live
-   before the first pick'em or meme contest, so the habit starts immediately.
-4. **Week 3+** — Fantasy integrations (Sleeper for NFL, standings bot pulling
-   ESPN/Yahoo for NBA), trade court, draft night mode timed to the actual draft.
-5. **Ongoing** — #highlights gets curated weekly; this is the only channel non-members
-   ever see get shared outside the server, and it's the actual growth lever.
-6. **Before opening the shell publicly** — confirm the OG category permissions are
-   correct (test with a throwaway account or a trusted non-OG member) and confirm the
-   borderline-member rule (§2) is written down somewhere the group has actually seen.
+Three things cost real time to discover. They are also in the code comments, but
+they belong here too.
+
+**Role permissions are a union of allows.** Removing View Channel from a bot's
+own role subtracts nothing while `@everyone` still grants it. Only an explicit
+**deny** overwrite restricts anything.
+
+**Categories do not grant permissions to their channels at run time.** Syncing
+*copies* overwrites down once; a channel that isn't synced keeps its own set
+forever. Every channel here was created with its own list, so a deny placed on a
+category reaches none of them. `confineCardBot` in the setup script therefore
+writes the deny to **every channel individually** — all 44 — with an allow on
+`🎴┃gacha`.
+
+**Carl-bot's automod exemption list excludes any role carrying permissions.** So
+`Mod` cannot be added to it. The alternative — granting `Mod` Manage Server, the
+permission Carl does auto-exempt — would also let mods add bots and rename the
+server. Hence the permission-less `Automod Exempt` role.
+
+Also worth knowing: a PATCH replaces a channel's **entire** overwrite list, so
+anything editing one must read the current list and merge. That arithmetic lives
+in `scripts/discord/permissions.mjs` with tests.
 
 ---
 
-*This is a planning document, not application code — Discord server/role/channel
-creation happens in the Discord client or via the Discord API directly, which this
-repository does not integrate with.*
+## 5. Automod and logging
+
+Carl-bot logs to `📕┃warn-log`: deletes, edits, purges, joins and leaves, role
+changes, nickname and avatar changes, bans, unbans, timeouts. Voice events are
+off — with five standing voice rooms they would bury everything else.
+
+Automod, all set to delete the message only:
+
+- Discord invite links
+- 6+ mentions in 10 seconds
+- 10+ messages in 5 seconds
+
+**Caps and word filters are deliberately off.** A caps filter on a server whose
+main room is `🏀┃2k` would fire twenty times a night. The premise is trash talk.
+
+---
+
+## 6. Season points
+
+One leaderboard fed by everything: pick'em, meme-of-the-week, aux battles,
+tournament placements, fantasy finishes.
+
+The pick'em is built and live (`worker/`): NFL confidence picks, rank 1..N, N
+varying with byes. Picks lock at the first kickoff of the week. A week is scored
+**only** when every game in it is final — a half-finished week is never scored,
+which is why the leaderboard stays quiet mid-week by design. Scoring posts
+standings to `📊┃season-leaderboard`, and the first scored week of a season also
+fires a one-off `@everyone` post to `📝┃pickem`.
+
+---
+
+## 7. What is not automated
+
+- **Safety Setup** — the server-wide verification level. No API exists.
+- **Onboarding questions** — `PUT /guilds/{id}/onboarding` could do it; the
+  questions are worth deciding by hand. Currently live and assigning game and
+  borough roles correctly.
+- **Assigning `OG`** — a manual human call is the entire point of the role.
+- **Custom emoji** — needs image files.
+
+---
+
+## 8. Still to build
+
+- **Fantasy phase**: `/standings` pulling Sleeper (NFL) and ESPN (NBA) into one
+  embed, plus a Tuesday recap with scores, biggest blowout and worst bench
+  decision. Blocked until the leagues exist — NFL missed its 2026 window, NBA
+  drafts in October.
+- **Trade court** automation: a 24h fair / collusion / robbery vote. Works fine
+  manually with reactions until someone forgets to tally.
+- **Invite tracking**: `🔗┃invite-tracking` is empty. Only matters once the
+  server opens to people you don't know.

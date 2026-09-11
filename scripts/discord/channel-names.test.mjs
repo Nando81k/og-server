@@ -8,7 +8,7 @@ import {
   TEXT,
   VOICE,
 } from './channel-names.mjs';
-import { normalizeChannelName } from '../bot/lib.mjs';
+import { normalizeChannelName } from '../../shared/lib.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };

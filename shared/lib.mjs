@@ -1,6 +1,12 @@
 /**
- * Decisions the bot makes, kept free of discord.js so they can be tested
- * without a token or a live server.
+ * Logic shared by the Cloudflare Worker and the setup scripts, kept free of
+ * any Discord library so it can be tested without a token or a live server.
+ *
+ * This used to live in scripts/bot/ alongside a gateway bot that ran /lfg.
+ * That bot is gone — /lfg moved to the Worker, which answers Discord's signed
+ * HTTP interactions instead of holding a connection open, and so needs no
+ * always-on host. The name stayed misleading long after the bot left, hence
+ * the move here.
  */
 
 /** Slash-command choice -> the role the setup script created. */
@@ -47,28 +53,6 @@ export function normalizeChannelName(name) {
 /** True when a Discord channel is the room we mean, decoration aside. */
 export function isChannelNamed(channel, wanted) {
   return normalizeChannelName(channel?.name) === normalizeChannelName(wanted);
-}
-
-/** Marks a voice channel as ours, so orphans can be swept after a restart. */
-export const TEMP_PREFIX = 'LFG · ';
-
-export function tempChannelName(game) {
-  const role = GAME_ROLES[game];
-  if (!role) throw new Error(`unknown game: ${game}`);
-  return `${TEMP_PREFIX}${role}`;
-}
-
-export function isTempChannel(name) {
-  return typeof name === 'string' && name.startsWith(TEMP_PREFIX);
-}
-
-/**
- * A temp channel is disposable once it is empty — either because everyone
- * left, or because nobody ever arrived and the grace period has passed.
- */
-export function shouldDelete({ memberCount, createdAt, now, graceMs }) {
-  if (memberCount > 0) return false;
-  return now - createdAt >= graceMs;
 }
 
 /** New Member becomes Member once they have been around long enough. */

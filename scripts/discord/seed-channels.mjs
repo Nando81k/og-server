@@ -22,7 +22,7 @@
  */
 
 import { askVisible, askHidden } from './prompt.mjs';
-import { normalizeChannelName } from '../bot/lib.mjs';
+import { normalizeChannelName } from '../../shared/lib.mjs';
 import {
   GUIDES,
   FORUM_GUIDELINES,

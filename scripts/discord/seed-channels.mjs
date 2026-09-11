@@ -23,7 +23,13 @@
 
 import { askVisible, askHidden } from './prompt.mjs';
 import { normalizeChannelName } from '../bot/lib.mjs';
-import { GUIDES, FORUM_GUIDELINES, ALREADY_PINNED, renderGuide } from './channel-guides.mjs';
+import {
+  GUIDES,
+  FORUM_GUIDELINES,
+  FORUM_TAGS,
+  ALREADY_PINNED,
+  renderGuide,
+} from './channel-guides.mjs';
 
 const DRY_RUN = process.env.DRY_RUN === '1';
 const interactive = Boolean(process.stdin.isTTY);
@@ -84,7 +90,11 @@ const channels = await discord('GET', `/guilds/${GUILD_ID}/channels`);
 // normalized name so decoration never orphans a guide.
 const idBySlug = new Map();
 const channelBySlug = new Map();
-for (const slug of [...Object.keys(GUIDES), ...Object.keys(FORUM_GUIDELINES)]) {
+for (const slug of [
+  ...Object.keys(GUIDES),
+  ...Object.keys(FORUM_GUIDELINES),
+  ...Object.keys(FORUM_TAGS),
+]) {
   const wanted = normalizeChannelName(slug);
   const hit = channels.find((c) => normalizeChannelName(c.name) === wanted);
   if (hit) {
@@ -184,9 +194,55 @@ for (const [slug, template] of Object.entries(FORUM_GUIDELINES)) {
   guidelines += 1;
 }
 
+// Tags make a forum filterable instead of a flat list of titles.
+let tagged = 0;
+for (const [slug, wanted] of Object.entries(FORUM_TAGS)) {
+  const channel = channelBySlug.get(slug);
+  if (!channel) {
+    console.warn(`! No channel found for #${slug} — skipping.`);
+    missing += 1;
+    continue;
+  }
+
+  const existing = channel.available_tags ?? [];
+  const same =
+    existing.length === wanted.length &&
+    wanted.every((t, i) => existing[i]?.name === t.name && existing[i]?.emoji_name === t.emoji);
+  if (same) {
+    console.log(`Already current: #${slug} tags`);
+    skipped += 1;
+    continue;
+  }
+
+  // Keep the id of a tag that already exists under the same name. A tag
+  // recreated with a fresh id would be silently stripped from every post
+  // already carrying it.
+  const byName = new Map(existing.map((t) => [t.name, t]));
+  const available_tags = wanted.map((t) => {
+    const prev = byName.get(t.name);
+    return {
+      ...(prev ? { id: prev.id } : {}),
+      name: t.name,
+      emoji_name: t.emoji,
+      emoji_id: null,
+      moderated: false,
+    };
+  });
+
+  console.log(
+    `${DRY_RUN ? '[dry run] ' : ''}Setting ${available_tags.length} tags on #${slug}: ` +
+      wanted.map((t) => t.name).join(', ')
+  );
+  if (!DRY_RUN) {
+    await discord('PATCH', `/channels/${channel.id}`, { available_tags });
+    await sleep(400);
+  }
+  tagged += 1;
+}
+
 console.log(
   `\n${DRY_RUN ? '[dry run] ' : ''}Posted ${posted}, updated ${updated}, ` +
-    `guidelines set ${guidelines}, left alone ${skipped}` +
+    `guidelines set ${guidelines}, forums tagged ${tagged}, left alone ${skipped}` +
     `${missing ? `, no channel for ${missing}` : ''}.`
 );
 if (DRY_RUN) console.log('Nothing was changed. Re-run without DRY_RUN=1 to apply.');

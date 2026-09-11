@@ -1,5 +1,5 @@
 import {
-  GUIDES, FORUM_GUIDELINES, ALREADY_PINNED, referencedSlugs, renderGuide,
+  GUIDES, FORUM_GUIDELINES, FORUM_TAGS, ALREADY_PINNED, referencedSlugs, renderGuide,
 } from './channel-guides.mjs';
 import { planChannels, VOICE, FORUM } from './channel-names.mjs';
 
@@ -54,6 +54,28 @@ check('guidelines stay under the 4096 character forum limit' +
   (longGuidelines.length ? ` (${longGuidelines.map((g) => g[0])})` : ''), longGuidelines.length === 0);
 check('guidelines are meaningfully longer than the one-line topic they replace',
   Object.values(FORUM_GUIDELINES).every((t) => t.length > 200));
+
+console.log('\n--- forum tags ---');
+const untagged = forums.filter((s) => !(s in FORUM_TAGS));
+check(`all ${forums.length} forums have tags` + (untagged.length ? ` (missing: ${untagged})` : ''),
+  untagged.length === 0);
+const tagsNotAForum = Object.keys(FORUM_TAGS).filter((s) => bySlug.get(s)?.type !== FORUM);
+check('no tags aimed at a non-forum channel' + (tagsNotAForum.length ? ` (${tagsNotAForum})` : ''),
+  tagsNotAForum.length === 0);
+for (const [slug, tags] of Object.entries(FORUM_TAGS)) {
+  // Discord: at most 20 tags per forum, each name at most 20 characters.
+  check(`#${slug} is within Discord's 20 tag limit`, tags.length <= 20);
+  const longNames = tags.filter((t) => [...t.name].length > 20).map((t) => t.name);
+  check(`#${slug} tag names fit in 20 characters` + (longNames.length ? ` (${longNames})` : ''),
+    longNames.length === 0);
+  const names = tags.map((t) => t.name);
+  const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+  check(`#${slug} has no duplicate tag name` + (dupes.length ? ` (${dupes})` : ''), dupes.length === 0);
+  const noEmoji = tags.filter((t) => !t.emoji).map((t) => t.name);
+  check(`#${slug} tags all carry an emoji` + (noEmoji.length ? ` (${noEmoji})` : ''), noEmoji.length === 0);
+  const empty = tags.filter((t) => !t.name?.trim());
+  check(`#${slug} has no blank tag name`, empty.length === 0);
+}
 
 console.log('\n--- cross-references resolve ---');
 const badRefs = [];

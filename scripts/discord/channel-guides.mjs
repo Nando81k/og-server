@@ -225,6 +225,34 @@ Basketball is a games-played game. Streaming, rest days and back-to-backs decide
 Punishment role for last place applies here too. Set your lineup.`,
 };
 
+/**
+ * Tags turn a forum from a flat list into something filterable. Both leagues
+ * share the four things a fantasy post is ever actually about, plus a draft
+ * tag, and then one each for what differs: football argues about start/sit,
+ * basketball argues about streaming the schedule.
+ *
+ * None are moderated — in a server this size, making people ask a mod to tag
+ * their own post would just mean nobody tags anything.
+ */
+export const FORUM_TAGS = {
+  'nfl-fantasy-forum': [
+    { name: 'Trade', emoji: '🤝' },
+    { name: 'Waiver', emoji: '📝' },
+    { name: 'Injury', emoji: '🏥' },
+    { name: 'Start/Sit', emoji: '🤔' },
+    { name: 'Grievance', emoji: '😤' },
+    { name: 'Draft', emoji: '🎯' },
+  ],
+  'nba-fantasy-forum': [
+    { name: 'Trade', emoji: '🤝' },
+    { name: 'Waiver', emoji: '📝' },
+    { name: 'Injury', emoji: '🏥' },
+    { name: 'Streaming', emoji: '🔄' },
+    { name: 'Grievance', emoji: '😤' },
+    { name: 'Draft', emoji: '🎯' },
+  ],
+};
+
 /** Channels whose pinned post was written by hand and must not be touched. */
 export const ALREADY_PINNED = [
   'welcome-rules',

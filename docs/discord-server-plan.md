@@ -92,9 +92,25 @@ user's voice state but never a list, so nothing without a gateway connection can
 tell whether a room has emptied. Standing rooms — one per game — sidestep it
 entirely. The gateway bot that implemented the old design has been deleted.
 
-Deliberately **not** installed: Dyno or MEE6 (Carl-bot already covers logging,
-automod, autorole, reaction roles, starboard and levelling — two mod bots means
-double-logging and conflicting rules), and music bots.
+Deliberately **not** installed: Dyno or MEE6 — Carl-bot already covers logging,
+automod, autorole, reaction roles, starboard and levelling, and two mod bots
+means double-logging and conflicting rules.
+
+**Music is wanted** (this reverses an earlier decision to skip it). The
+category is unusually unstable: Groovy and Rythm, the two largest music bots
+ever made, were shut down in 2021 after Google's lawyers objected to them
+streaming from YouTube, and everything since works the same way. Whatever gets
+installed can disappear without notice, so nothing should depend on it.
+[Jockie](https://www.jockiemusic.com/) is the current pick, specifically
+because it runs as four linked bot accounts: a music bot occupies one voice
+channel at a time, and with eight voice rooms a single-instance bot is
+permanently busy. Discord's own Watch Together activity and Spotify's Listen
+Along are the durable alternatives for `🔊 Watch Party`, since no cease-and-
+desist can take them away.
+
+A music bot needs no permission setup. It is already shut out of MOD, OG and
+AFTER HOURS by those channels' own overwrites — see §4 — and everywhere else
+is where it belongs.
 
 ---
 
@@ -122,6 +138,15 @@ server. Hence the permission-less `Automod Exempt` role.
 Also worth knowing: a PATCH replaces a channel's **entire** overwrite list, so
 anything editing one must read the current list and merge. That arithmetic lives
 in `scripts/discord/permissions.mjs` with tests.
+
+Which bots get confined is data, in `scripts/discord/bot-scopes.mjs`. Only bots
+that need it are listed: every bot is *already* excluded from MOD, OG and AFTER
+HOURS, because those channels deny `@everyone` View Channel and then name the
+roles that get it back — and a bot's role is never among them. So that list is
+about noise and about bots that read message content, not about privacy from
+the private rooms. Karuta is there because it uses `k!` prefix commands, which
+means it reads every message in every channel it can see; a bot that only needs
+to stay out of the private areas needs no entry and no setup.
 
 ---
 

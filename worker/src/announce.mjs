@@ -32,13 +32,15 @@ Standings post to ${board} every week.`;
 
 const ET = 'America/New_York';
 const etDay = (ms) => new Date(ms).toLocaleDateString('en-US', { timeZone: ET, weekday: 'long' });
-const etStamp = (ms) =>
-  `${new Date(ms).toLocaleString('en-US', {
-    timeZone: ET,
-    weekday: 'long',
-    hour: 'numeric',
-    minute: '2-digit',
-  })} ET`;
+// "Wednesday at 8:20 PM ET". Built from two calls rather than one
+// toLocaleString, because that glues the weekday to the time ("Wednesday 8:20
+// PM") and the result has to read as English after the word "closed".
+const etStamp = (ms) => {
+  const d = new Date(ms);
+  const day = d.toLocaleDateString('en-US', { timeZone: ET, weekday: 'long' });
+  const time = d.toLocaleTimeString('en-US', { timeZone: ET, hour: 'numeric', minute: '2-digit' });
+  return `${day} at ${time} ET`;
+};
 
 /**
  * What `/picks` says when the week it would serve has already locked.
@@ -71,7 +73,7 @@ export function lockedMessage({ week, games = [], leaderboardChannelId } = {}) {
   }
 
   return (
-    `**Week ${week} is locked.** Picks closed at ${etStamp(Math.min(...kickoffs))}, ` +
+    `**Week ${week} is locked.** Picks closed ${etStamp(Math.min(...kickoffs))}, ` +
     `the first kickoff of the week. That is always the deadline — not Sunday.\n\n` +
     `**You haven't missed the season.** Week ${next} opens once Week ${week}'s last game ` +
     `is played (${etDay(Math.max(...kickoffs))}) and locks at its own first kickoff. ` +

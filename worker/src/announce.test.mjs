@@ -24,7 +24,11 @@ const games = [
 ];
 const m = lockedMessage({ week: 1, games, leaderboardChannelId: '123' });
 check('says which week is locked', m.includes('Week 1 is locked'));
-check('reports the lock in Eastern time', m.includes('Wednesday 8:20 PM ET'));
+check('reports the lock in Eastern time', m.includes('Wednesday at 8:20 PM ET'));
+// toLocaleString glues weekday to time, which read as "closed at Wednesday
+// 8:20 PM" — correct data, broken English, and it shipped that way once.
+check('reads as English after "closed"', m.includes('Picks closed Wednesday at'));
+check('does not say "at Wednesday"', !/at\s+(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day/.test(m));
 check('names the day the week finishes', m.includes('(Monday)'));
 check('points at the next week', m.includes('Week 2 opens'));
 check('tells them what to run', m.includes('/picks'));

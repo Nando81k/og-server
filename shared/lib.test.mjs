@@ -8,16 +8,18 @@ const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
 
 console.log('--- games ---');
-// /lfg's choices in register-commands.mjs are 2k, cod, madden and fgc. Every
-// one has to resolve to both a role and a voice room or the command half-works.
-const GAMES = ['2k', 'cod', 'madden', 'fgc'];
-check('every game maps to a role', GAMES.every((g) => GAME_ROLES[g]));
-check('every game maps to a voice room', GAMES.every((g) => GAME_VOICE[g]));
-check('no stray games in the role map', Object.keys(GAME_ROLES).length === GAMES.length);
-check('no stray games in the room map', Object.keys(GAME_VOICE).length === GAMES.length);
+// Whether every /lfg choice has a role and a room lives in commands.test.mjs,
+// which reads the real command definition. A hand-written list of games here
+// would be the weaker of two sources of truth and the one that goes stale
+// without saying so — it did, which is why that file exists.
 check('voiceRoomFor resolves a known game', voiceRoomFor('2k') === '2K Voice');
 check('voiceRoomFor throws on an unknown game',
   (() => { try { voiceRoomFor('halo'); return false; } catch { return true; } })());
+// An internal invariant of this module, independent of what /lfg offers:
+// a game in one map and not the other pings people into a room that does not
+// exist, or fills a room nobody was told about.
+check('the role map and the room map cover the same games',
+  Object.keys(GAME_ROLES).sort().join() === Object.keys(GAME_VOICE).sort().join());
 
 console.log('\n--- promotion ---');
 const now = 1_000_000_000;

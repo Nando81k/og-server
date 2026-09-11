@@ -9,6 +9,7 @@
  */
 
 import { askVisible, askHidden } from './prompt.mjs';
+import { COMMANDS } from '../../shared/commands.mjs';
 
 // stdin alone decides this: stdout is piped under `npm run`, but the
 // keyboard is still there and prompts go to stderr.
@@ -30,40 +31,12 @@ if (!APP_ID || !GUILD_ID || !TOKEN) {
   process.exit(1);
 }
 
-const commands = [
-  {
-    name: 'lfg',
-    description: 'Start a session and pull people in',
-    options: [
-      {
-        name: 'game',
-        description: 'What are you running?',
-        type: 3, // string
-        required: true,
-        choices: [
-          { name: '2K', value: '2k' },
-          { name: 'CoD', value: 'cod' },
-          { name: 'Madden', value: 'madden' },
-          { name: 'Fighting Games', value: 'fgc' },
-        ],
-      },
-      {
-        name: 'slots',
-        description: 'How many people total (default 5)',
-        type: 4, // integer
-        required: false,
-      },
-    ],
-  },
-  { name: 'picks', description: 'Get your link to this week’s pick’em', options: [] },
-];
-
 const res = await fetch(
   `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`,
   {
     method: 'PUT',
     headers: { Authorization: `Bot ${TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(commands),
+    body: JSON.stringify(COMMANDS),
   }
 );
 

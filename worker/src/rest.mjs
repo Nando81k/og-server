@@ -30,10 +30,13 @@ export function createApi(token) {
       call('PUT', `/guilds/${guildId}/members/${userId}/roles/${roleId}`),
     removeRole: (guildId, userId, roleId) =>
       call('DELETE', `/guilds/${guildId}/members/${userId}/roles/${roleId}`),
-    postMessage: (channelId, content) =>
+    // Nothing pings by default: the leaderboard is full of <@user> mentions
+    // and nobody wants a notification every week for appearing in a table.
+    // Callers that genuinely mean to ping pass allowedMentions explicitly.
+    postMessage: (channelId, content, allowedMentions = { parse: [] }) =>
       call('POST', `/channels/${channelId}/messages`, {
         content,
-        allowed_mentions: { parse: [] },
+        allowed_mentions: allowedMentions,
       }),
   };
 }

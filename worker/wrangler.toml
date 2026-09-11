@@ -26,6 +26,8 @@ MEMBER_AFTER_DAYS = "7"
 SEASON = "2026"
 # Right-click #season-leaderboard in Discord -> Copy Channel ID.
 LEADERBOARD_CHANNEL_ID = "1546736665492717600"
+# Where the one-off "the pick'em is live" post goes when week 1 is first scored.
+PICKEM_CHANNEL_ID = "1546736667992391761"
 
 # Created with `wrangler d1 create og-pickem`; schema applied with
 # `wrangler d1 execute og-pickem --remote --file=./schema.sql`. Both done.

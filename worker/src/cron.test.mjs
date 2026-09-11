@@ -1,10 +1,13 @@
 import { runWeekly } from './index.mjs';
+import { weekOneAnnouncement } from './announce.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
 
 const posted = [];
-const api = { postMessage: async (ch, content) => posted.push({ ch, content }) };
+const api = {
+  postMessage: async (ch, content, mentions) => posted.push({ ch, content, mentions }),
+};
 
 const state = {
   games: [
@@ -140,6 +143,80 @@ posted.length = 0;
     /Entered every week: <@a>/.test(posted[0]?.content ?? ''));
   check('mid-season: post shows both season total and this week\'s points',
     /<@a> — 3 \(\+1 this week\)/.test(posted[0]?.content ?? ''));
+}
+
+// --- the one-off week 1 announcement -------------------------------------
+// It exists to pull people into a season competition they have not entered.
+// It must fire once, ping once, and never cost a scored week if it fails.
+
+console.log('\n--- week 1 announcement ---');
+{
+  const text = weekOneAnnouncement({ leaderboardChannelId: '999' });
+  check('pings everyone', text.startsWith('@everyone'));
+  check('links the leaderboard channel', text.includes('<#999>'));
+  check('names the command people must run', text.includes('/picks'));
+  check('fits in a Discord message', [...text].length <= 2000);
+  const noBoard = weekOneAnnouncement();
+  check('degrades to plain text with no channel id',
+    noBoard.includes('#season-leaderboard') && !noBoard.includes('<#undefined>'));
+}
+
+{
+  posted.length = 0;
+  state.games[0].winner = null;
+  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, api, deps);
+  check('still scores the week', out.scored === 1);
+  check('posts the leaderboard and the announcement', posted.length === 2);
+  const board = posted.find((p) => p.ch === '999');
+  const shout = posted.find((p) => p.ch === '777');
+  check('the announcement goes to the pickem channel', Boolean(shout));
+  check('the announcement pings everyone',
+    shout?.mentions?.parse?.includes('everyone') === true);
+  // The leaderboard passes no allowed_mentions at all, so it inherits
+  // rest.mjs's ping-nothing default — asserted directly in rest.test.mjs.
+  check('the leaderboard never asks to ping anyone',
+    !(board?.mentions?.parse ?? []).includes('everyone'));
+  check('the announcement lands after the leaderboard', posted[0].ch === '999');
+}
+
+{
+  posted.length = 0;
+  state.games[0].winner = null;
+  const out = await runWeekly(env, api, deps);
+  check('posts only the leaderboard when no pickem channel is set',
+    out.scored === 1 && posted.length === 1 && posted[0].ch === '999');
+}
+
+{
+  posted.length = 0;
+  state.games[0].winner = null;
+  const wk2 = {
+    ...deps,
+    openWeek: async () => 2,
+    getGames: async (_db, _season, w) =>
+      w === 2 ? state.games.map((g) => ({ ...g, week: 2, voided: false, completed: g.winner !== null })) : [],
+    allPicks: async (_db, _season, w) =>
+      w === 2 ? state.picks.map((p) => ({ ...p, week: 2, userId: p.user_id })) : [],
+  };
+  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, api, wk2);
+  check('week 2 scores without announcing', out.scored === 2);
+  check('week 2 posts no announcement', !posted.some((p) => p.ch === '777'));
+}
+
+{
+  posted.length = 0;
+  state.games[0].winner = null;
+  const flaky = {
+    postMessage: async (ch, content, mentions) => {
+      if (ch === '777') throw new Error('missing permissions');
+      posted.push({ ch, content, mentions });
+    },
+  };
+  const out = await runWeekly({ ...env, PICKEM_CHANNEL_ID: '777' }, flaky, deps);
+  check('a failed announcement still scores the week', out.scored === 1);
+  check('a failed announcement still leaves the leaderboard posted',
+    posted.length === 1 && posted[0].ch === '999');
+  check('a failed announcement still syncs the next week', out.synced === 2);
 }
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');

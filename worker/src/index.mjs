@@ -31,6 +31,7 @@ import {
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { scoreWeek, buildStandings } from './scoring.mjs';
+import { weekOneAnnouncement } from './announce.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -218,6 +219,22 @@ export async function runWeekly(env, api, deps = {}) {
     `**Week ${week} is in.**\n${lines}` +
       (everyWeek.length ? `\n\nEntered every week: ${everyWeek.join(', ')}` : '')
   );
+
+  // The first scored week of the season is the moment the pick'em stops being
+  // an idea and starts being a table with names in it — the only time a ping
+  // is worth spending. Week 1 scores exactly once (openWeek moves past it), so
+  // this cannot repeat. A failure here must not cost us the scoring above.
+  if (week === 1 && env.PICKEM_CHANNEL_ID) {
+    try {
+      await api.postMessage(
+        env.PICKEM_CHANNEL_ID,
+        weekOneAnnouncement({ leaderboardChannelId: env.LEADERBOARD_CHANNEL_ID }),
+        { parse: ['everyone'] }
+      );
+    } catch (err) {
+      console.warn(`Could not post the week 1 announcement: ${err.message}`);
+    }
+  }
 
   const next = week + 1;
   try {

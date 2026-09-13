@@ -76,7 +76,7 @@ before the server went public. Full stop. Everyone else earns `Veteran`.
 
 | Bot | Does | Where |
 |---|---|---|
-| **OG Bot** (custom) | `/lfg`, `/picks`, the weekly pick'em cron, `New Member` → `Member` promotion | `worker/` — a Cloudflare Worker |
+| **OG Bot** (custom) | `/lfg`, `/picks`, `/leaderboard`, `/award`, the weekly pick'em cron, `New Member` → `Member` promotion | `worker/` — a Cloudflare Worker |
 | **Carl-bot** | Autorole, reaction roles, starboard (⭐×3 → `⭐┃highlights`), logging, automod | carl.gg dashboard |
 | **Sesh** | Event creation and RSVPs | `📍┃irl-plans` |
 | **Karuta** | Collectible card game | Confined to `🎴┃gacha` — see §4 |
@@ -236,6 +236,31 @@ their own error handling, so a failure in one cannot cancel the other. They
 were a single unguarded sequence once, which meant a rate-limited member fetch
 could silently cost the season its launch.
 
+**Everything the pick'em cannot score goes through `/award`.** Tournament
+placements, meme of the week, aux battles, fantasy finishes — the plan always
+promised the board was fed by all of them, and for a while only the pick'em
+could reach it. A `points` table now holds an append-only ledger: who, how
+many, what for, who awarded it, when. Two awards to one person are ordinary; a
+correction is a second row with a negative amount. Nothing is overwritten, so
+the board can always be explained by reading the rows that built it.
+
+Awards are merged into the standings *after* they are built, never through
+them, because a row in the pick'em table also counts as a week entered. Winning
+a bracket is not a week of pick'em, and someone who wins one without ever
+picking a game belongs on the board with zero weeks rather than credited with
+having entered all of them.
+
+`/award` is gated twice — hidden by `default_member_permissions` from anyone
+without Manage Messages, and checked again in the handler, because that default
+can be overridden per server in Integrations. Its reply is public: a season
+point handed out quietly is one nobody can question.
+
+**`/leaderboard` shows the standings on demand**, because before it they only
+existed inside the weekly post — award someone points on a Sunday and nobody
+saw it until Tuesday. It counts only weeks below the open one, so a total never
+drifts during a Sunday afternoon, and it shares one `scoreSeason` with the
+weekly job so the two cannot disagree about what someone has scored.
+
 ---
 
 ## 7. What is not automated
@@ -259,3 +284,37 @@ could silently cost the season its launch.
   manually with reactions until someone forgets to tally.
 - **Invite tracking**: `🔗┃invite-tracking` is empty. Only matters once the
   server opens to people you don't know.
+- **`🕹️┃game-of-the-month` has no mechanism.** Jockie's Guess the Song was the
+  candidate and left with Jockie. Either it earns a new one or it folds into
+  `🏆 SEASON + TOURNAMENTS`.
+
+---
+
+## 9. Running things
+
+Every script prompts for the bot token, hidden as you paste it, and never puts
+it in shell history. `GUILD_ID` and `BOT_TOKEN` in the environment skip the
+prompts.
+
+| Command | Does | When |
+|---|---|---|
+| `npm test` | The whole suite, no token needed | Before anything |
+| `npm run setup` | Roles, channels, permissions, bot scoping | Rebuilding the server |
+| `npm run seed` | Channel guides, forum guidelines and tags | After editing `channel-guides.mjs` |
+| `npm run register` | Tells Discord about the slash commands | After changing `shared/commands.mjs` |
+| `npm run backup` | Exports the database to `backups/` | After a week scores |
+| `npm run emoji` | Uploads every image in `emoji/` | After adding images |
+
+`register` and `seed` are the two that catch people out. Discord keeps its own
+copy of the command list, so a new command does not exist until `register`
+runs; and `seed` edits its own pinned post in place rather than adding a
+second, so re-running it is safe and re-running it is also the only way an
+edited guide reaches the server.
+
+**Backups.** Cloudflare's Time Travel already restores the database to a point
+in time — `wrangler d1 time-travel info og-pickem` prints the bookmark. The
+export covers what that cannot: the account going away, the retention window
+passing, or reading a season's data somewhere that is not Cloudflare. It
+refuses a dump that is empty or missing a table, because a backup nobody opens
+until the day they need it is worse than none, and it keeps nothing when the
+data has not changed since the last one.

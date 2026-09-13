@@ -9,7 +9,8 @@
     "test": "for f in shared/*.test.mjs scripts/discord/*.test.mjs worker/src/*.test.mjs; do node $f || exit 1; done",
     "register": "node scripts/discord/register-commands.mjs",
     "seed": "node scripts/discord/seed-channels.mjs",
-    "backup": "node scripts/backup-db.mjs"
+    "backup": "node scripts/backup-db.mjs",
+    "emoji": "node scripts/discord/upload-emoji.mjs"
   },
   "engines": {
     "node": ">=18"

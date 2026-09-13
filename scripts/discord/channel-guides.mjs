@@ -135,9 +135,19 @@ Post your pulls. Nobody wants to see them. Post them anyway.`,
 
   brackets: `**tournaments run here**
 
-Seeding, matchups and results for 2K and fighting game tourneys. The bracket gets pinned whenever one is live.
+Seeding, matchups and results for 2K and fighting game tourneys. When one is live, the bracket link gets pinned at the top of this channel — open it to see who you play next.
 
-Report your set the moment it's done — a whole bracket stalls on one unreported match.
+**The format, so nobody has to argue about it mid-tournament.**
+
+Double elimination. You have to lose twice to be out, because one bad matchup in round one shouldn't end your whole night.
+
+Sets are best of 3 until winners and losers finals, then best of 5.
+
+Grand finals reset: if the player coming out of losers wins the first set, you play a second one to decide it. They had to lose twice to get there; the other player hasn't lost yet.
+
+Seeding puts the two strongest entrants on opposite halves of the bracket so they can't meet in round one.
+
+**Report your set the moment it ends.** The whole bracket stalls on one unreported match, and whoever is waiting on you is sitting there doing nothing.
 
 Placements feed the season leaderboard in {#season-leaderboard}.`,
 

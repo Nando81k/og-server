@@ -113,7 +113,15 @@ Spoiler rule: if it aired this week, tag it ||like this||. Older than a season i
 
 What you're keeping up with as it airs. Episode reactions belong here so {#anime} doesn't turn into a minefield.
 
-Name the show and episode before you say anything — **AOT ep 7** — then your take. Anything past that gets bars, ||like this||.`,
+Name the show and episode before you say anything — **AOT ep 7** — then your take. Anything past that gets bars, ||like this||.
+
+**Running a watch party.** Say what and when here and ping @Watch Party — it's self-assignable, so anyone who wants in already has it. For anything more than an hour out, use Sesh: \`/create\` makes an event people can RSVP to, so you know who's actually turning up.
+
+Everyone piles into {#watch-party}. One person plays the episode and hits **Go Live** on their browser window — only the host needs a subscription, everyone else just watches.
+
+**If Go Live shows a black screen**, that's DRM, and it's fixable. Share the *window*, not the whole screen — that alone usually does it. Still black: turn off hardware acceleration in your browser settings. Firefox handles this best of the three.
+
+Streams cap at 720p without Nitro. Fine for watching together, so don't pick the episode you've been saving.`,
 
   manga: `**assume everyone here is ahead**
 

@@ -3,13 +3,17 @@ import {
   sameTopic, firstDifference,
 } from './channel-guides.mjs';
 import { planChannels, VOICE, FORUM } from './channel-names.mjs';
+import { normalizeChannelName } from '../../shared/lib.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
 
 const channels = planChannels();
 const bySlug = new Map(channels.map((c) => [c.name, c]));
-const slugs = new Set(channels.map((c) => c.name));
+// The seeder resolves a {#slug} against every channel's *normalized* name, so
+// a guide can link a voice room as {#watch-party}. Matching that here keeps
+// the test from rejecting a reference the seeder would resolve fine.
+const slugs = new Set(channels.flatMap((c) => [c.name, normalizeChannelName(c.name)]));
 
 console.log('--- every guide targets a real channel ---');
 const unknown = Object.keys(GUIDES).filter((s) => !slugs.has(s));

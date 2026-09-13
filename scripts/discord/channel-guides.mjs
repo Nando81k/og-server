@@ -151,9 +151,33 @@ No guilty pleasures in here. Recommend the thing.`,
 
   gacha: `**card bots live here**
 
-Summons, pulls, trades, and whatever bot minigame is running. Kept to one room so the rolls don't fill up every other channel.
+Karuta drops anime cards in this channel and you collect them. It's free, there's no account, and there's nothing to install — you play it by typing in here.
 
-Post your pulls — the great ones and the disasters. The disasters get more reactions.`,
+**How it actually works**
+
+Cards come out three at a time, either when somebody runs \`k!drop\` or on their own when this channel is busy. Under the drop you'll see 1️⃣ 2️⃣ 3️⃣ — tap the number of the one you want. Fastest tap gets it.
+
+That's the whole game. Everything below is optional.
+
+**Your first five minutes**
+
+— \`k!drop\` puts three cards up for grabs (30 minute cooldown)
+— Tap a number on anyone's drop to claim a card, not just your own
+— \`k!collection\` shows what you own
+— \`k!view <code>\` shows one card up close
+— \`k!daily\` is free currency, once a day
+
+**What makes a card good**
+
+The **print number** (#123) is how many of that card exist — lower is rarer, and anything under #100 is a genuinely big deal. **Quality** runs 0 to 4 stars, 4 being Mint. The same character also comes in different **editions** with different art.
+
+**Once you're in deeper**
+
+\`k!burn <code>\` turns a card you don't want into gold and dust. \`k!work\` puts your cards on jobs so they earn while you're away. \`k!trade @someone\` swaps anything with anyone. \`k!cd\` shows your cooldowns, \`k!balance\` your money, and \`k!help\` lists the rest.
+
+**One thing worth knowing early:** grabbing puts you on a cooldown too, so it's usually worth waiting for a card you actually want instead of taking the first one you see.
+
+No pressure to min-max any of it — most people here just grab characters they like. Post your pulls, the great ones and the disasters. The disasters get more reactions.`,
 
   brackets: `**tournaments run here**
 

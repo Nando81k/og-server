@@ -30,6 +30,8 @@ const deps = {
   now: Date.parse('2026-09-15T09:00:00Z'),
   alreadyDone: async (_db, key) => marks.has(key),
   markDone: async (_db, key) => { marks.add(key); },
+  // No hand-awarded points unless a block below says otherwise.
+  seasonAwards: async () => [],
   fetchWeek: async ({ week }) => ({
     season: 2026, week,
     games: [{ id: '1', kickoff: '2026-09-13T17:00Z', home: 'KC', away: 'BAL', winner: 'KC', completed: true, voided: false }],
@@ -332,6 +334,53 @@ console.log('\n--- the two jobs are independent ---');
     });
   } catch { ok = false; }
   check('a healthy run throws nothing', ok);
+}
+
+console.log('\n--- awarded points reach the posted leaderboard ---');
+// The whole point of the points table: the plan says tournament placements
+// feed the season board, and until now nothing but the pick'em could.
+{
+  posted.length = 0;
+  marks.clear();
+  state.games[0].winner = null;
+  const withAward = {
+    ...deps,
+    seasonAwards: async () => [{ userId: 'a', points: 25 }],
+  };
+  const out = await runWeekly(env, api, withAward);
+  check('the week still scores', out.scored === 1);
+  const board = posted.find((p) => p.ch === '999')?.content ?? '';
+  // Pick'em gave 'a' one point; the award gives 25 more.
+  check('the award is included in the posted total', /<@a> — 26/.test(board));
+}
+
+{
+  posted.length = 0;
+  marks.clear();
+  state.games[0].winner = null;
+  const onlyAward = {
+    ...deps,
+    seasonAwards: async () => [{ userId: 'newcomer', points: 9 }],
+  };
+  await runWeekly(env, api, onlyAward);
+  const board = posted.find((p) => p.ch === '999')?.content ?? '';
+  check('someone with only an award appears on the board', /<@newcomer> — 9/.test(board));
+  // They never entered a week, so they must not be credited with entering all
+  // of them — that line is a season-long bragging right.
+  check('an award alone does not claim every week entered',
+    !/Entered every week:[^\n]*newcomer/.test(board));
+}
+
+{
+  posted.length = 0;
+  marks.clear();
+  state.games[0].winner = null;
+  let asked = null;
+  const spy = { ...deps, seasonAwards: async (_db, season) => { asked = season; return []; } };
+  await runWeekly(env, api, spy);
+  check('awards are looked up for the current season', asked === 2026);
+  check('no awards still posts a normal board',
+    /<@a>/.test(posted.find((p) => p.ch === '999')?.content ?? ''));
 }
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');

@@ -28,3 +28,26 @@ export function buildStandings(rows) {
     (a, b) => b.points - a.points || b.correct - a.correct || (a.userId < b.userId ? -1 : 1)
   );
 }
+
+/**
+ * Fold hand-awarded points into pick'em standings.
+ *
+ * Kept separate from buildStandings rather than fed through it, because a row
+ * there also counts as a week entered. Awards are not weeks: someone who wins
+ * a tournament and never touches the pick'em has not "entered every week", and
+ * running them through the same path would quietly claim they had.
+ *
+ * Someone with awards and no picks still belongs on the board — they scored
+ * season points — so they are added with zero correct picks and zero weeks.
+ */
+export function mergeAwards(standings, awards) {
+  const totals = new Map((standings ?? []).map((r) => [r.userId, { ...r }]));
+  for (const a of awards ?? []) {
+    const existing = totals.get(a.userId);
+    if (existing) existing.points += a.points;
+    else totals.set(a.userId, { userId: a.userId, points: a.points, correct: 0, weeks: 0 });
+  }
+  return [...totals.values()].sort(
+    (a, b) => b.points - a.points || b.correct - a.correct || (a.userId < b.userId ? -1 : 1)
+  );
+}

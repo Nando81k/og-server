@@ -23,15 +23,16 @@ import {
 } from '../../shared/lib.mjs';
 import { verifyPickToken, signPickToken } from './token.mjs';
 import { renderForm, renderMessage } from './form.mjs';
-import { validateSubmission, lockTime } from './validate.mjs';
+import { validateSubmission, lockTime, hasManageMessages, validateAward } from './validate.mjs';
 import {
   getGames, getPicks, savePicks, openWeek,
   upsertGames as dbUpsert, setResults as dbSetResults, allPicks as dbAllPicks,
   upsertTeams as dbUpsertTeams, getTeams,
   alreadyDone as dbAlreadyDone, markDone as dbMarkDone,
+  awardPoints, seasonAwards as dbSeasonAwards,
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
-import { scoreWeek, buildStandings } from './scoring.mjs';
+import { scoreWeek, buildStandings, mergeAwards } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage } from './announce.mjs';
 
 const PING = 1;
@@ -130,6 +131,7 @@ export async function runWeekly(env, api, deps = {}) {
     allPicks = dbAllPicks,
     alreadyDone = dbAlreadyDone,
     markDone = dbMarkDone,
+    seasonAwards = dbSeasonAwards,
   } = deps;
   // getGames and openWeek are also imported plainly for use in fetch() below,
   // so their overridable-for-testing default can't be spelled as a
@@ -210,7 +212,9 @@ export async function runWeekly(env, api, deps = {}) {
     }
   }
 
-  const table = buildStandings(rows);
+  // Hand-awarded points join here rather than in buildStandings, so a
+  // tournament win never counts as a week of pick'em entered.
+  const table = mergeAwards(buildStandings(rows), await seasonAwards(env.DB, season));
   // "Entered every week" means every week the season has actually had games
   // for, not "the current week number" — a season bootstrapped mid-way
   // (e.g. starting at week 3) never reaches r.weeks === week otherwise.
@@ -434,6 +438,45 @@ export default {
       const token = await signPickToken({ userId, season, week, exp }, env.PICKS_SECRET);
       const link = `${url.origin}/picks?t=${token}`;
       return json({ type: REPLY, data: { content: `Your Week ${week} picks: ${link}`, flags: 64 } });
+    }
+
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'award') {
+      // The command carries default_member_permissions, so Discord already
+      // hides it from anyone without Manage Messages. Checked again here
+      // because that default can be overridden per server in Integrations,
+      // and a command that hands out season points should not rely on a
+      // setting someone else can change.
+      if (!hasManageMessages(interaction.member)) {
+        return json({
+          type: REPLY,
+          data: { content: 'Only mods can award points.', flags: 64 },
+        });
+      }
+
+      const { user: userId, points, reason } = optionsOf(interaction);
+      const award = validateAward({ points, reason });
+      if (!award.ok) {
+        return json({ type: REPLY, data: { content: award.error, flags: 64 } });
+      }
+
+      await awardPoints(env.DB, {
+        season: Number(env.SEASON),
+        userId,
+        amount: award.points,
+        reason: award.reason,
+        awardedBy: interaction.member?.user?.id ?? 'unknown',
+      });
+
+      // Public on purpose. Season points are a scoreboard, and one handed out
+      // quietly is one nobody can question.
+      const sign = award.points > 0 ? '+' : '';
+      return json({
+        type: REPLY,
+        data: {
+          content: `${sign}${award.points} to <@${userId}> — ${award.reason}`,
+          allowed_mentions: { parse: [] },
+        },
+      });
     }
 
     return json({ type: REPLY, data: { content: 'Not something I handle.', flags: 64 } });

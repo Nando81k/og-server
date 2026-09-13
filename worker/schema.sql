@@ -43,3 +43,21 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Points awarded by hand, for everything the pick'em cannot score itself:
+-- tournament placements, meme of the week, aux battles, fantasy finishes.
+--
+-- An append-only ledger, not a running total per person. Two awards to the
+-- same player are ordinary, a correction is a second row with a negative
+-- amount, and nothing is ever overwritten — so the leaderboard can always be
+-- explained by reading the rows that built it.
+CREATE TABLE IF NOT EXISTS points (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  season     INTEGER NOT NULL,
+  user_id    TEXT    NOT NULL,
+  amount     INTEGER NOT NULL,
+  reason     TEXT    NOT NULL,
+  awarded_by TEXT    NOT NULL,
+  awarded_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS points_season ON points (season);

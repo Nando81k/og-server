@@ -140,3 +140,33 @@ export async function markDone(db, key, value = new Date().toISOString()) {
     .bind(key, value)
     .run();
 }
+
+/** Record one award. Nothing is ever updated in place — see schema.sql. */
+export async function awardPoints(db, { season, userId, amount, reason, awardedBy, now }) {
+  await db
+    .prepare(
+      `INSERT INTO points (season, user_id, amount, reason, awarded_by, awarded_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(season, userId, amount, reason, awardedBy, now ?? new Date().toISOString())
+    .run();
+}
+
+/**
+ * Every award this season, already summed per person.
+ *
+ * Summed in SQL rather than in the worker because the ledger only grows, and
+ * the leaderboard only ever needs the totals.
+ */
+export async function seasonAwards(db, season) {
+  const { results } = await db
+    .prepare(
+      `SELECT user_id, SUM(amount) AS points
+         FROM points
+        WHERE season = ?
+        GROUP BY user_id`
+    )
+    .bind(season)
+    .all();
+  return (results ?? []).map((r) => ({ userId: r.user_id, points: Number(r.points) || 0 }));
+}

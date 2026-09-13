@@ -1,4 +1,4 @@
-import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams, alreadyDone, markDone } from './db.mjs';
+import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams, alreadyDone, markDone, awardPoints, seasonAwards } from './db.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -113,6 +113,33 @@ const dbMarkDefault = fakeDb();
 await markDone(dbMarkDefault, 'posted:2026:2');
 check('marking defaults the value to a timestamp',
   !Number.isNaN(Date.parse(dbMarkDefault.statements[0].binds[0][1])));
+
+console.log('\n--- the points ledger ---');
+const dbAward = fakeDb();
+await awardPoints(dbAward, {
+  season: 2026, userId: '555', amount: 10, reason: 'won the bracket',
+  awardedBy: '999', now: '2026-09-13T00:00:00.000Z',
+});
+check('awarding writes one row', dbAward.statements.length === 1);
+check('awarding inserts, never updates',
+  /INSERT INTO points/i.test(dbAward.statements[0].sql) &&
+  !/ON CONFLICT|UPDATE/i.test(dbAward.statements[0].sql));
+check('the row carries who, what and why',
+  dbAward.statements[0].binds[0].join('|') ===
+    '2026|555|10|won the bracket|999|2026-09-13T00:00:00.000Z');
+
+const dbAwardNow = fakeDb();
+await awardPoints(dbAwardNow, { season: 2026, userId: '1', amount: 1, reason: 'r', awardedBy: '2' });
+check('the timestamp defaults to now',
+  !Number.isNaN(Date.parse(dbAwardNow.statements[0].binds[0][5])));
+
+const dbTotals = fakeDb([{ user_id: '555', points: 30 }]);
+const totals = await seasonAwards(dbTotals, 2026);
+check('totals come back per person', totals.length === 1 && totals[0].userId === '555');
+check('totals are numbers, not strings', totals[0].points === 30);
+check('totals are summed in SQL', /SUM\(amount\)/i.test(dbTotals.statements[0].sql));
+check('totals are scoped to the season', dbTotals.statements[0].binds[0].includes(2026));
+check('an empty ledger reads as no awards', (await seasonAwards(fakeDb([]), 2026)).length === 0);
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

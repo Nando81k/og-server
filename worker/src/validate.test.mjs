@@ -1,4 +1,6 @@
-import { validateSubmission, lockTime } from './validate.mjs';
+import {
+  validateSubmission, lockTime, hasManageMessages, validateAward, MAX_AWARD, MAX_REASON,
+} from './validate.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -85,6 +87,46 @@ const testNonObject = (label, entry) => {
 testNonObject('rejects null entry without throwing', null);
 testNonObject('rejects string entry without throwing', 'string');
 testNonObject('rejects undefined entry without throwing', undefined);
+
+console.log('\n--- who may award points ---');
+// Fails closed. A command that edits the standings must never run for someone
+// whose permissions could not be read.
+const perm = (bit) => ({ permissions: String(1n << BigInt(bit)) });
+check('a mod with Manage Messages may', hasManageMessages(perm(13)));
+check('an administrator may', hasManageMessages(perm(3)));
+check('a plain member may not', !hasManageMessages({ permissions: '0' }));
+check('some other permission does not qualify', !hasManageMessages(perm(11)));
+check('a missing member may not', !hasManageMessages(undefined));
+check('missing permissions may not', !hasManageMessages({}));
+check('unparseable permissions may not', !hasManageMessages({ permissions: 'lots' }));
+// The exact set the music bots were invited with, as a real-world negative.
+check('a music bot permission set does not qualify',
+  !hasManageMessages({ permissions: '274914692352' }));
+
+console.log('\n--- awards are checked before they reach the ledger ---');
+// The ledger is append-only and public: a bad row is corrected by a second
+// visible row, never quietly edited. Cheaper to refuse it here.
+check('a normal award passes', validateAward({ points: 10, reason: 'won the bracket' }).ok);
+check('a negative award passes, for corrections',
+  validateAward({ points: -10, reason: 'double counted' }).ok);
+check('zero is refused', !validateAward({ points: 0, reason: 'nothing' }).ok);
+check('a fraction is refused', !validateAward({ points: 1.5, reason: 'half' }).ok);
+check('a numeric string is refused', !validateAward({ points: '10', reason: 'ten' }).ok);
+check('an absurd number is refused', !validateAward({ points: 10000, reason: 'oops' }).ok);
+check('the bound holds at the edge', validateAward({ points: MAX_AWARD, reason: 'max' }).ok);
+check('one past the bound is refused', !validateAward({ points: MAX_AWARD + 1, reason: 'x' }).ok);
+check('an empty reason is refused', !validateAward({ points: 5, reason: '' }).ok);
+check('a whitespace-only reason is refused', !validateAward({ points: 5, reason: '   ' }).ok);
+check('a missing reason is refused', !validateAward({ points: 5 }).ok);
+check('an over-long reason is refused',
+  !validateAward({ points: 5, reason: 'x'.repeat(MAX_REASON + 1) }).ok);
+check('a reason at the limit passes',
+  validateAward({ points: 5, reason: 'x'.repeat(MAX_REASON) }).ok);
+check('reason whitespace is tidied',
+  validateAward({ points: 5, reason: '  won   the  bracket ' }).reason === 'won the bracket');
+check('every refusal explains itself',
+  [{ points: 0, reason: 'x' }, { points: 1.5, reason: 'x' }, { points: 5, reason: '' }]
+    .every((a) => typeof validateAward(a).error === 'string' && validateAward(a).error.length > 0));
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

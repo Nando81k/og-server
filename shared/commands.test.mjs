@@ -43,8 +43,8 @@ check('every value fits Discord\'s 100 character limit',
   values.every((v) => [...v].length <= 100));
 
 console.log('\n--- the commands Discord is told about ---');
-check('registers /lfg and /picks',
-  COMMANDS.map((c) => c.name).sort().join(',') === 'lfg,picks');
+check('registers exactly the commands we mean to',
+  COMMANDS.map((c) => c.name).sort().join(',') === 'award,lfg,picks');
 check('every command has a name and description',
   COMMANDS.every((c) => c.name && c.description));
 check('no duplicate command names',
@@ -61,6 +61,20 @@ check('required options come before optional ones',
       !req.slice(req.lastIndexOf(true) + 1).includes(true) &&
       req.every((r, i) => !r || !req.slice(0, i).includes(false));
   }));
+
+console.log('\n--- /award is gated at the Discord level ---');
+const award = COMMANDS.find((c) => c.name === 'award');
+check('/award is registered', Boolean(award));
+// Without this, every member sees a command that hands out season points.
+check('it is hidden from members without Manage Messages',
+  award.default_member_permissions === String(1 << 13));
+check('the permission is a string, as Discord requires',
+  typeof award.default_member_permissions === 'string');
+check('it takes a user, a number and a reason',
+  award.options.map((o) => o.type).join() === '6,4,3');
+check('all three are required', award.options.every((o) => o.required === true));
+check('the reason is free text, so it can say what it was for',
+  award.options.find((o) => o.name === 'reason').type === 3);
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

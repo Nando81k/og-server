@@ -1,4 +1,4 @@
-import { scoreWeek, buildStandings } from './scoring.mjs';
+import { scoreWeek, buildStandings, mergeAwards } from './scoring.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -41,6 +41,51 @@ check('sums across weeks', table.find((r) => r.userId === 'a').points === 190);
 check('sorts by points', table[0].userId === 'a');
 check('counts weeks entered', table.find((r) => r.userId === 'a').weeks === 2);
 check('ties break by userId', table[1].userId === 'b' && table[2].userId === 'c');
+
+console.log('\n--- hand-awarded points join the standings ---');
+const picks = buildStandings([
+  { userId: 'a', points: 10, correct: 5, week: 1 },
+  { userId: 'b', points: 6, correct: 3, week: 1 },
+]);
+
+const merged = mergeAwards(picks, [{ userId: 'b', points: 20 }]);
+check('an award is added to an existing total',
+  merged.find((r) => r.userId === 'b').points === 26);
+check('someone with no award is untouched',
+  merged.find((r) => r.userId === 'a').points === 10);
+check('the board re-sorts after awarding', merged[0].userId === 'b');
+
+// The whole reason this is separate from buildStandings. A tournament win is
+// not a week of pick'em entered, and "entered every week" reads that count.
+check('an award does not count as a week entered',
+  merged.find((r) => r.userId === 'b').weeks === 1);
+check('an award does not count as a correct pick',
+  merged.find((r) => r.userId === 'b').correct === 3);
+
+const newcomer = mergeAwards(picks, [{ userId: 'c', points: 15 }]);
+check('someone with awards but no picks still appears',
+  newcomer.find((r) => r.userId === 'c').points === 15);
+check('a newcomer has entered no weeks',
+  newcomer.find((r) => r.userId === 'c').weeks === 0);
+check('a newcomer has no correct picks',
+  newcomer.find((r) => r.userId === 'c').correct === 0);
+
+check('a negative award subtracts',
+  mergeAwards(picks, [{ userId: 'a', points: -4 }]).find((r) => r.userId === 'a').points === 6);
+check('two awards to one person both land',
+  mergeAwards(picks, [{ userId: 'a', points: 5 }, { userId: 'a', points: 5 }])
+    .find((r) => r.userId === 'a').points === 20);
+
+check('no awards leaves the board alone',
+  JSON.stringify(mergeAwards(picks, [])) === JSON.stringify(picks));
+check('missing awards leave the board alone',
+  JSON.stringify(mergeAwards(picks, undefined)) === JSON.stringify(picks));
+check('awards alone still build a board',
+  mergeAwards([], [{ userId: 'z', points: 3 }])[0].userId === 'z');
+check('survives both being empty', mergeAwards([], []).length === 0);
+// Merging must not edit the rows buildStandings returned.
+check('the original standings are not mutated',
+  picks.find((r) => r.userId === 'b').points === 6);
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

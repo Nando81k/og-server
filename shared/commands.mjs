@@ -15,6 +15,10 @@
 
 const STRING = 3;
 const INTEGER = 4;
+const USER = 6;
+
+/** MANAGE_MESSAGES, bit 13 — the permission Mod has and Member does not. */
+const MANAGE_MESSAGES = 1 << 13;
 
 export const COMMANDS = [
   {
@@ -44,6 +48,31 @@ export const COMMANDS = [
     ],
   },
   { name: 'picks', description: 'Get your link to this week’s pick’em', options: [] },
+  {
+    name: 'award',
+    description: 'Give season points for something the pick’em cannot score',
+    // Discord hides the command from anyone without Manage Messages, which
+    // Mod has and Member does not. Gating it here rather than only in code
+    // means the wrong people never see it in the picker — but the handler
+    // checks the same bit anyway, because this can be overridden per server
+    // in Integrations settings.
+    default_member_permissions: String(MANAGE_MESSAGES),
+    options: [
+      { name: 'user', description: 'Who earned them', type: USER, required: true },
+      {
+        name: 'points',
+        description: 'How many (negative to correct a mistake)',
+        type: INTEGER,
+        required: true,
+      },
+      {
+        name: 'reason',
+        description: 'What for — this shows on the leaderboard',
+        type: STRING,
+        required: true,
+      },
+    ],
+  },
 ];
 
 /** The game values /lfg offers, in the order they appear in the picker. */

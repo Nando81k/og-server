@@ -7,6 +7,13 @@ the core.
 This document describes the server **as it actually is**. Where an earlier plan
 was abandoned, the reason is recorded, because the reasons are the useful part.
 
+It is the *build* document — the reasoning, the dead ends, the permission
+arithmetic. The member-facing version is `docs/handbook.html`: every channel,
+role, bot, command and rule, with none of the why. `docs/handbook.test.mjs`
+asserts the handbook lists every channel the seeder creates, every command that
+is registered, and the same placement points the code pays out, so the two
+cannot drift apart quietly.
+
 ---
 
 ## 1. Structure

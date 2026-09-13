@@ -1,0 +1,602 @@
+<title>The OGs Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    --ground: #EDEEF0;
+    --panel: #FFFFFF;
+    --ink: #16181D;
+    --muted: #5A6070;
+    --rule: #D3D7DE;
+    --accent: #0039A6;
+    --accent-soft: #E2E8F6;
+    --warn: #8A5A00;
+    --warn-soft: #FBF0D6;
+
+    --line-start: #0039A6;
+    --line-general: #FF6319;
+    --line-nyc: #6CBE45;
+    --line-games: #EE352E;
+    --line-anime: #B933AD;
+    --line-season: #FCCC0A;
+    --line-fantasy: #00933C;
+    --line-after: #996633;
+    --line-mod: #A7A9AC;
+    --line-og: #16181D;
+
+    --shell: 68rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121419;
+      --panel: #1A1D24;
+      --ink: #E8EAEE;
+      --muted: #98A0AE;
+      --rule: #2B303A;
+      --accent: #6E9BFF;
+      --accent-soft: #1E2740;
+      --warn: #E8C067;
+      --warn-soft: #2A2415;
+      --line-og: #C9CEDA;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #121419;
+    --panel: #1A1D24;
+    --ink: #E8EAEE;
+    --muted: #98A0AE;
+    --rule: #2B303A;
+    --accent: #6E9BFF;
+    --accent-soft: #1E2740;
+    --warn: #E8C067;
+    --warn-soft: #2A2415;
+    --line-og: #C9CEDA;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: var(--shell); margin: 0 auto; padding: 0 1.5rem; }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding: 3.5rem 0 2rem; }
+  .kicker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .78rem;
+    color: var(--muted);
+    margin: 0 0 .9rem;
+  }
+  h1 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 800;
+    font-size: clamp(2.5rem, 7vw, 4.25rem);
+    line-height: .95;
+    letter-spacing: -.035em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.14rem;
+    color: var(--muted);
+    max-width: 46ch;
+    margin: 0;
+  }
+
+  /* ---------- section nav ---------- */
+  nav.jump {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--ground);
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 3rem;
+  }
+  nav.jump .inner {
+    max-width: var(--shell);
+    margin: 0 auto;
+    padding: .7rem 1.5rem;
+    display: flex;
+    gap: .4rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  nav.jump a {
+    flex: none;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .78rem;
+    text-decoration: none;
+    color: var(--muted);
+    padding: .35rem .65rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  nav.jump a:hover { color: var(--ink); background: var(--accent-soft); }
+  nav.jump a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 4rem; scroll-margin-top: 4.5rem; }
+  h2 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.85rem;
+    letter-spacing: -.02em;
+    margin: 0 0 .35rem;
+  }
+  .sub { color: var(--muted); margin: 0 0 1.6rem; max-width: 62ch; }
+  h3 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -.01em;
+    margin: 2.2rem 0 .8rem;
+  }
+  p { max-width: 68ch; }
+  a { color: var(--accent); }
+
+  /* ---------- rules ---------- */
+  .rules { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .rule-item { background: var(--panel); padding: 1.15rem 1.3rem; }
+  .rule-item strong {
+    display: block;
+    font-family: Archivo, sans-serif;
+    font-size: 1.02rem;
+    margin-bottom: .3rem;
+  }
+  .rule-item span { color: var(--muted); font-size: .95rem; }
+  .hard {
+    margin-top: 1rem;
+    background: var(--warn-soft);
+    border-left: 3px solid var(--warn);
+    padding: .9rem 1.1rem;
+    font-size: .95rem;
+    color: var(--ink);
+    border-radius: 0 4px 4px 0;
+  }
+
+  /* ---------- start here ---------- */
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; display: grid; gap: .8rem; }
+  ol.steps li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: .9rem;
+    align-items: start;
+  }
+  ol.steps li::before {
+    content: counter(s);
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    font-size: .85rem;
+    color: var(--accent);
+    background: var(--accent-soft);
+    width: 2rem; height: 2rem;
+    border-radius: 50%;
+    display: grid; place-items: center;
+  }
+
+  /* ---------- channels ---------- */
+  .cat { margin-bottom: 2.2rem; }
+  .cat-head { display: flex; align-items: center; gap: .7rem; margin-bottom: .9rem; }
+  .bullet {
+    width: 2rem; height: 2rem; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: .95rem;
+    flex: none;
+  }
+  .cat-name {
+    font-family: Archivo, sans-serif;
+    font-weight: 700;
+    font-size: .95rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .cat-note {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem;
+    color: var(--muted);
+    border: 1px solid var(--rule);
+    padding: .1rem .45rem;
+    border-radius: 3px;
+  }
+  .rooms { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .room { background: var(--panel); padding: .8rem 1rem; display: grid; grid-template-columns: minmax(11rem, 15rem) 1fr; gap: 1rem; align-items: baseline; }
+  .room .nm { font-family: "IBM Plex Mono", monospace; font-size: .87rem; font-weight: 600; }
+  .room .ds { color: var(--muted); font-size: .93rem; }
+  .voice .nm::before { content: "🔊 "; }
+  .room .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .68rem;
+    color: var(--muted);
+    margin-left: .4rem;
+    border: 1px solid var(--rule);
+    padding: 0 .3rem;
+    border-radius: 2px;
+  }
+  @media (max-width: 640px) {
+    .room { grid-template-columns: 1fr; gap: .2rem; }
+  }
+
+  /* ---------- tables ---------- */
+  .tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; }
+  th, td { text-align: left; padding: .72rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; font-size: .93rem; }
+  th {
+    font-family: Archivo, sans-serif;
+    font-weight: 700;
+    font-size: .74rem;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  td .who { color: var(--muted); }
+
+  /* ---------- commands ---------- */
+  .cmds { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .cmd { background: var(--panel); padding: .85rem 1rem; display: grid; grid-template-columns: minmax(12rem, 17rem) 1fr; gap: 1rem; align-items: baseline; }
+  .cmd code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .87rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .cmd .ds { color: var(--muted); font-size: .93rem; }
+  .cmd .mod { color: var(--warn); font-family: "IBM Plex Mono", monospace; font-size: .68rem; margin-left: .35rem; }
+  @media (max-width: 640px) { .cmd { grid-template-columns: 1fr; gap: .2rem; } }
+
+  code.inline {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .88em;
+    background: var(--accent-soft);
+    padding: .08em .35em;
+    border-radius: 3px;
+  }
+
+  .note { color: var(--muted); font-size: .93rem; max-width: 66ch; }
+  .note strong { color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 2rem 0 4rem;
+    color: var(--muted);
+    font-size: .88rem;
+  }
+</style>
+
+<nav class="jump" aria-label="Sections">
+  <div class="inner">
+    <a href="#rules">rules</a>
+    <a href="#start">start here</a>
+    <a href="#channels">channels</a>
+    <a href="#roles">roles</a>
+    <a href="#bots">bots</a>
+    <a href="#commands">commands</a>
+    <a href="#points">season points</a>
+    <a href="#mod">moderation</a>
+  </div>
+</nav>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="kicker">THE OGs SERVER · HANDBOOK</p>
+    <h1>You found the spot.</h1>
+    <p class="standfirst">This started as a group chat. It outgrew the group chat. Now it's here — still a friend group that happens to have a server, not a server trying to become a friend group.</p>
+  </header>
+
+  <section id="rules">
+    <h2>The rules</h2>
+    <p class="sub">Five of them. Read once, then forget it.</p>
+
+    <div class="rules">
+      <div class="rule-item">
+        <strong>No weirdos.</strong>
+        <span>Racism, homophobia, transphobia, bigotry of any flavor — removed the first time, not the third. No warnings for this one.</span>
+      </div>
+      <div class="rule-item">
+        <strong>Talk your shit, don't take it personal.</strong>
+        <span>Trash talk is the entire point of <code class="inline">#2k</code> and <code class="inline">#madden</code>. But if someone's actually upset, it's done. Read the room.</span>
+      </div>
+      <div class="rule-item">
+        <strong>What's said here stays here.</strong>
+        <span>Don't screenshot the server into other group chats. <code class="inline">#highlights</code> is where the stuff we want getting out lives.</span>
+      </div>
+      <div class="rule-item">
+        <strong>Nobody's business is content.</strong>
+        <span>Don't post someone's @, their job, their address, or their situation without asking.</span>
+      </div>
+      <div class="rule-item">
+        <strong>#smoke-lounge is 18+.</strong>
+        <span>Grab the role in onboarding. Lie about your age and you're out — that one's not ours to bend.</span>
+      </div>
+    </div>
+
+    <p class="hard">The first rule and the age rule are the two with no appeal. Everything else is a conversation.</p>
+  </section>
+
+  <section id="start">
+    <h2>Start here</h2>
+    <p class="sub">Four things, about a minute total.</p>
+    <ol class="steps">
+      <li><span><strong>Answer the onboarding questions.</strong> That's what gets you your games, your borough, and the channels that come with them.</span></li>
+      <li><span><strong>Say something in <code class="inline">#general-chat</code></strong> so we know you're real.</span></li>
+      <li><span><strong>Put your borough in <code class="inline">#irl-plans</code></strong> if you're trying to actually link up. Half the reason plans die is nobody knows who's close.</span></li>
+      <li><span><strong><code class="inline">#bodega-tier-list</code> is a serious academic channel</strong> and will be treated as such.</span></li>
+    </ol>
+    <p class="note" style="margin-top:1.4rem">After a week you're promoted from <strong>New Member</strong> to <strong>Member</strong> automatically. Nobody has to approve it.</p>
+  </section>
+
+  <section id="channels">
+    <h2>Every room</h2>
+    <p class="sub">Forty-three of them, grouped the way the sidebar is. Every text channel has a pinned post at the top explaining what it's for, so you never have to guess from the name alone.</p>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-start)">📋</span>
+        <span class="cat-name">Start here</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#welcome-rules</span><span class="ds">The rules, and what OG means.</span></div>
+        <div class="room"><span class="nm">#onboarding</span><span class="ds">Pick your games and your borough. Ten seconds, and it decides which channels you see.</span></div>
+        <div class="room"><span class="nm">#announcements</span><span class="ds">Server news, rarely. Anything that changes how this place works — tournaments, rule changes, dates worth putting in your phone.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-general)">💬</span>
+        <span class="cat-name">General</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#general-chat</span><span class="ds">The main room. No topic — the default for anything that doesn't have its own channel yet.</span></div>
+        <div class="room"><span class="nm">#sports-talk</span><span class="ds">Local suffering, mostly. Knicks, Nets, Yankees, Mets, Jets, Giants.</span></div>
+        <div class="room"><span class="nm">#pop-culture</span><span class="ds">Music, shows, movies. Drop the link and say why it's worth the time.</span></div>
+        <div class="room"><span class="nm">#deep-thoughts</span><span class="ds">The 3am channel. Life, work, money, people. No sports and no games — that separation is the whole reason it exists.</span></div>
+        <div class="room"><span class="nm">#highlights</span><span class="ds">React ⭐ to anything worth keeping. Three stars and Carl-bot copies it here on its own.</span></div>
+        <div class="room voice"><span class="nm">General Voice</span><span class="ds">The default room. No game attached.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-nyc)">🗽</span>
+        <span class="cat-name">NYC</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#irl-plans</span><span class="ds">Actually linking up. Say what, where, and when — and put your borough in it. Sesh handles the events and RSVPs.</span></div>
+        <div class="room"><span class="nm">#bodega-tier-list</span><span class="ds">Ranking bodegas. Treated with the seriousness it deserves.</span></div>
+        <div class="room"><span class="nm">#mta-complaints</span><span class="ds">Therapy. Delays, reroutes, the guy with the speaker, the smell. Get it out here so it stops leaking into every other channel.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-games)">🎮</span>
+        <span class="cat-name">Games</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#lfg</span><span class="ds">Where a session starts. Run <code class="inline">/lfg</code> and it pings the game role and links the voice room.</span></div>
+        <div class="room"><span class="nm">#2k</span><span class="ds">Park, MyTeam, and badge arguments. Builds, clips, and whoever's been ducking.</span></div>
+        <div class="room"><span class="nm">#cod</span><span class="ds">Loadouts and lobby blame. Class setups, clips, whatever the meta is this week.</span></div>
+        <div class="room"><span class="nm">#madden</span><span class="ds">Franchise and CPU conspiracy theories. Sliders, Ultimate Team, and the fourth-quarter comeback the CPU always gets.</span></div>
+        <div class="room"><span class="nm">#fighting-games</span><span class="ds">Sets, frame data, getting bodied. Any game — post your main and catch strays.</span></div>
+        <div class="room voice"><span class="nm">2K Voice</span><span class="ds">Standing room, one per game — <code class="inline">/lfg</code> points at the right one.</span></div>
+        <div class="room voice"><span class="nm">CoD Voice</span><span class="ds">Same.</span></div>
+        <div class="room voice"><span class="nm">Madden Voice</span><span class="ds">Same.</span></div>
+        <div class="room voice"><span class="nm">Fighting Games Voice</span><span class="ds">Same. Also where brackets get played.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-anime)">📺</span>
+        <span class="cat-name">Anime</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#anime</span><span class="ds">The main anime room. Airing, finished, obscure, all of it.</span></div>
+        <div class="room"><span class="nm">#currently-watching</span><span class="ds">This season, week by week. Episode reactions belong here so #anime doesn't turn into a minefield.</span></div>
+        <div class="room"><span class="nm">#manga</span><span class="ds">Assume everyone here is ahead. If you're watching and not reading, tread carefully.</span></div>
+        <div class="room"><span class="nm">#recommendations</span><span class="ds">What to watch next. Say what it is and say why — "watch X if you liked Y" is what people actually act on.</span></div>
+        <div class="room"><span class="nm">#gacha</span><span class="ds">Card bots live here. Penned in one room so pulls don't fill every other channel.</span></div>
+        <div class="room voice"><span class="nm">Watch Party</span><span class="ds">Screen share, or Discord's Watch Together. Grab the Watch Party role to get pinged when one starts.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-season)">🏆</span>
+        <span class="cat-name">Season + tournaments</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#season-leaderboard</span><span class="ds">The standings. Posted automatically when a week finishes, or on demand with <code class="inline">/leaderboard</code>.</span></div>
+        <div class="room"><span class="nm">#pickem</span><span class="ds">NFL confidence picks. <code class="inline">/picks</code> gives you your link for the week.</span></div>
+        <div class="room"><span class="nm">#brackets</span><span class="ds">Tournaments, run by OG Bot with <code class="inline">/bracket</code>. Game of the month runs here too.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-fantasy)">🐐</span>
+        <span class="cat-name">Fantasy</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#nfl-fantasy-forum<span class="tag">forum</span></span><span class="ds">One thread per thing — every trade, waiver claim, injury scare and grievance gets its own post. Filterable by tag.</span></div>
+        <div class="room"><span class="nm">#nba-fantasy-forum<span class="tag">forum</span></span><span class="ds">Same shape. Title it so people can tell whether to open it.</span></div>
+        <div class="room"><span class="nm">#standings</span><span class="ds">Both leagues in one place. Empty until the Sleeper and ESPN leagues exist.</span></div>
+        <div class="room"><span class="nm">#trade-court</span><span class="ds">Put a trade to a vote: fair, collusion, or robbery. 24 hours.</span></div>
+        <div class="room voice"><span class="nm">Draft Night</span><span class="ds">Exactly what it says, once a year, twice if the NBA league happens.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-after)">🔞</span>
+        <span class="cat-name">After hours</span>
+        <span class="cat-note">18+ role required</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#smoke-lounge</span><span class="ds">Slow channel. Nothing said here goes anywhere else. No sourcing, and nothing that would get the server reported.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-mod)">🛡️</span>
+        <span class="cat-name">Mod</span>
+        <span class="cat-note">private</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#mod-chat</span><span class="ds">Anything about a member, a report, or a call that needs a second opinion first.</span></div>
+        <div class="room"><span class="nm">#warn-log</span><span class="ds">Written automatically by Carl-bot. Nobody posts here.</span></div>
+        <div class="room"><span class="nm">#invite-tracking</span><span class="ds">Who brought whom. Empty until invite tracking is switched on.</span></div>
+      </div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-head">
+        <span class="bullet" style="background: var(--line-og); color: var(--panel)">🔒</span>
+        <span class="cat-name">OG</span>
+        <span class="cat-note">private</span>
+      </div>
+      <div class="rooms">
+        <div class="room"><span class="nm">#og-chat</span><span class="ds">The group chat, continued. Same people, same conversations, none of the audience.</span></div>
+        <div class="room"><span class="nm">#og-plans</span><span class="ds">Ideas and decisions while they're still half-formed. Once something's real it moves to #announcements.</span></div>
+        <div class="room"><span class="nm">#og-hall-of-fame</span><span class="ds">The group chat's greatest hits.</span></div>
+        <div class="room voice"><span class="nm">OG Voice</span><span class="ds">Same idea, out loud.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="roles">
+    <h2>Roles</h2>
+    <p class="sub">Top to bottom, the way they sit in Discord.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Role</th><th>Who gets it</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td class="num">OG</td><td>In the group chat before the server went public</td><td class="who">Never earnable. Not a grind, and asking doesn't move it.</td></tr>
+          <tr><td class="num">Veteran</td><td>Earned over time</td><td class="who">Stick around and be someone people are glad to see.</td></tr>
+          <tr><td class="num">Mod</td><td>Trusted members</td><td class="who">By invitation. Kick, ban, timeout, manage messages and voice — deliberately not Manage Server.</td></tr>
+          <tr><td class="num">Member</td><td>Anyone a week in</td><td class="who">Automatic. OG Bot promotes you on its daily run.</td></tr>
+          <tr><td class="num">New Member</td><td>Just joined</td><td class="who">Applied by Carl-bot the moment you arrive.</td></tr>
+          <tr><td class="num">18+</td><td>Anyone who said they're of age</td><td class="who">The onboarding age question only — never a reaction role.</td></tr>
+          <tr><td class="num">Watch Party</td><td>Anyone who wants the ping</td><td class="who">Self-assign. Pinged when a watch starts.</td></tr>
+          <tr><td class="num">2K · CoD · Madden · Fighting Games</td><td>Whoever plays them</td><td class="who">Onboarding. These are what <code class="inline">/lfg</code> pings.</td></tr>
+          <tr><td class="num">Bronx · Brooklyn · Manhattan · Queens · Staten Island</td><td>Where you actually are</td><td class="who">Self-assign. Makes <code class="inline">#irl-plans</code> work.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:1rem"><strong>OG isn't a rank.</strong> It means you were early, nothing more. Nobody's above anybody.</p>
+  </section>
+
+  <section id="bots">
+    <h2>The bots</h2>
+    <p class="sub">Five, one of which runs three copies of itself.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Bot</th><th>What it does</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td class="num">OG Bot</td><td>Ours, custom built. <code class="inline">/lfg</code>, the pick'em, tournament brackets, season points, and the automatic New&nbsp;Member → Member promotion.</td><td class="who">Everywhere</td></tr>
+          <tr><td class="num">Carl-bot</td><td>Auto-roles new arrivals, runs the ⭐ starboard into #highlights, logs moderation, enforces automod.</td><td class="who">Everywhere</td></tr>
+          <tr><td class="num">Sesh</td><td>Events and RSVPs.</td><td class="who">#irl-plans</td></tr>
+          <tr><td class="num">Karuta</td><td>Collectible card game.</td><td class="who">#gacha only</td></tr>
+          <tr><td class="num">Chip ×3</td><td>Music. Three copies so three voice rooms can play different things at once.</td><td class="who">All voice rooms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:1.1rem"><strong>OG Bot shows as Offline and that's correct.</strong> It doesn't hold a connection open — Discord calls it only when someone runs a command. That's exactly why it runs on nothing and costs nothing.</p>
+  </section>
+
+  <section id="commands">
+    <h2>Commands</h2>
+    <p class="sub">Type <code class="inline">/</code> in any channel and Discord shows you these. The ones marked MOD are refused for everyone else.</p>
+
+    <h3>OG Bot</h3>
+    <div class="cmds">
+      <div class="cmd"><code>/lfg &lt;game&gt; [slots]</code><span class="ds">Start a session. Pings everyone with that game's role and links the voice room. Defaults to 5 slots.</span></div>
+      <div class="cmd"><code>/picks</code><span class="ds">Your private link to this week's NFL pick'em.</span></div>
+      <div class="cmd"><code>/leaderboard</code><span class="ds">Season standings on demand, counting only weeks that have actually been scored.</span></div>
+      <div class="cmd"><code>/award &lt;user&gt; &lt;points&gt; &lt;reason&gt;</code><span class="ds">Hand out season points for anything the pick'em can't score. Public on purpose.<span class="mod">MOD</span></span></div>
+    </div>
+
+    <h3>Running a tournament</h3>
+    <div class="cmds">
+      <div class="cmd"><code>/bracket create &lt;name&gt;</code><span class="ds">Open sign-ups.<span class="mod">MOD</span></span></div>
+      <div class="cmd"><code>/bracket join</code><span class="ds">Put your name in.</span></div>
+      <div class="cmd"><code>/bracket leave</code><span class="ds">Take it out, before it starts.</span></div>
+      <div class="cmd"><code>/bracket start</code><span class="ds">Draw the bracket. The draw is random.<span class="mod">MOD</span></span></div>
+      <div class="cmd"><code>/bracket view</code><span class="ds">Who plays who right now.</span></div>
+      <div class="cmd"><code>/bracket report &lt;match&gt; &lt;winner&gt;</code><span class="ds">Say who won your set. Start typing a name and it offers the sets waiting on a result. Either player can report it.</span></div>
+      <div class="cmd"><code>/bracket undo</code><span class="ds">Take back the last result. Works up until the grand final is reported.<span class="mod">MOD</span></span></div>
+      <div class="cmd"><code>/bracket cancel</code><span class="ds">Call it off. Nobody gets points.<span class="mod">MOD</span></span></div>
+    </div>
+    <p class="note" style="margin-top:1.1rem">Double elimination — you have to lose twice to be out. Best of 3 until winners and losers finals, then best of 5. If the player coming out of losers wins the grand final, you play a second one, because they had to lose twice to get there and the other player hasn't lost at all. <strong>Report the moment your set ends</strong>; the whole bracket stalls on one unreported match.</p>
+
+    <h3>Music</h3>
+    <div class="cmds">
+      <div class="cmd"><code>/play &lt;song&gt;</code><span class="ds">Quick play. Join a voice room first.</span></div>
+      <div class="cmd"><code>/search &lt;song&gt;</code><span class="ds">Use this when the title is ambiguous — it returns a clickable list with each result's artist and duration, which is how you tell Wiz Khalifa's "See You Again" from Miley Cyrus's.</span></div>
+    </div>
+    <p class="note" style="margin-top:1.1rem">Chip also has queue tools, filters, lyrics, DJ roles and 24/7 mode. There are three copies — <strong>Chip</strong>, <strong>Chip 2</strong>, <strong>Chip 3</strong> — so if one is busy in another room, call the next one. Neither Chip nor any other music bot suggests song names as you type; <code class="inline">/search</code> is the substitute.</p>
+  </section>
+
+  <section id="points">
+    <h2>Season points</h2>
+    <p class="sub">One leaderboard fed by everything: the pick'em, tournaments, and anything a mod decides was worth points. It lives in <code class="inline">#season-leaderboard</code>.</p>
+
+    <h3>The pick'em</h3>
+    <p>NFL, every week. You rank your picks by confidence — most confident gets the most points, least gets one — so a week with 16 games is worth up to about 136. <code class="inline">/picks</code> gets your link. Picks lock at the first kickoff of the week.</p>
+    <p class="note">A week is scored <strong>only</strong> once every game in it is final, which is why the board stays quiet mid-week. That's deliberate, not broken.</p>
+
+    <h3>Tournaments</h3>
+    <p>Paid out automatically the moment the bracket ends. Nobody has to remember to hand them out.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Placing</th><th>Points</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Won it</td><td class="num">50</td><td class="who">About half a very good pick'em week.</td></tr>
+          <tr><td>Runner up</td><td class="num">30</td><td class="who"></td></tr>
+          <tr><td>3rd</td><td class="num">20</td><td class="who"></td></tr>
+          <tr><td>4th</td><td class="num">12</td><td class="who"></td></tr>
+          <tr><td>Rest of the top 8</td><td class="num">6</td><td class="who">Joint placings are real results — two people can share 5th.</td></tr>
+          <tr><td>Entered</td><td class="num">2</td><td class="who">An empty bracket is the actual failure mode, not an unfair one.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Everything else</h3>
+    <p>Meme of the week, aux battles, fantasy finishes — a mod runs <code class="inline">/award</code>. The ledger is append-only: a correction is a second entry, never an edit, so the board can always be explained by reading the entries that built it.</p>
+  </section>
+
+  <section id="mod">
+    <h2>Moderation</h2>
+    <p class="sub">What gets deleted on sight, and what gets logged.</p>
+
+    <h3>Automod deletes</h3>
+    <div class="cmds">
+      <div class="cmd"><code>invite links</code><span class="ds">Discord invites to other servers.</span></div>
+      <div class="cmd"><code>6+ mentions / 10s</code><span class="ds">Mass ping.</span></div>
+      <div class="cmd"><code>10+ messages / 5s</code><span class="ds">Spam.</span></div>
+    </div>
+    <p class="note" style="margin-top:1.1rem"><strong>There is no caps filter and no word filter, on purpose.</strong> A caps filter on a server whose main room is <code class="inline">#2k</code> would fire twenty times a night. The premise is trash talk.</p>
+
+    <h3>Logged to #warn-log</h3>
+    <p class="note">Deletes, edits, purges, joins and leaves, role changes, nickname and avatar changes, bans, unbans and timeouts. Voice events are off — with eight standing voice rooms they'd bury everything else.</p>
+  </section>
+
+  <footer class="shell" style="padding-left:0;padding-right:0">
+    <p>Still coming: fantasy standings pulling Sleeper and ESPN into one board, automated trade court voting, and invite tracking. Everything else on this page is live now.</p>
+    <p>Go play something.</p>
+  </footer>
+</div>

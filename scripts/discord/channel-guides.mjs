@@ -7,9 +7,9 @@
  * mention at post time — see renderGuide — so the links stay live through
  * renames too.
  *
- * Eight channels are missing on purpose: welcome-rules, lfg, bodega-tier-list,
- * pickem, game-of-the-month, trade-court, og-hall-of-fame and
- * season-leaderboard already have a pinned post. The seeder skips any channel
+ * Seven channels are missing on purpose: welcome-rules, lfg, bodega-tier-list,
+ * pickem, trade-court, og-hall-of-fame and season-leaderboard already have a
+ * pinned post. The seeder skips any channel
  * whose pin was written by a person.
  */
 export const GUIDES = {
@@ -149,6 +149,16 @@ Seeding puts the two strongest entrants on opposite halves of the bracket so the
 
 **Report your set the moment it ends.** The whole bracket stalls on one unreported match, and whoever is waiting on you is sitting there doing nothing.
 
+**Game of the month runs here too.** It had its own channel and sat empty — a vote every few weeks doesn't need a room of its own, and it belongs next to the brackets it feeds.
+
+Nominate a game. React to vote. The winner is what everybody's playing next month — the one thing we all have in common for four weeks.
+
+— Nominations open the last week of the month
+— One nomination each, vote for as many as you want
+— Winner gets a pinned thread
+
+It doesn't have to be new and it doesn't have to be good. Some of the best months have been bad games.
+
 Placements feed the season leaderboard in {#season-leaderboard}.`,
 
   standings: `**both leagues, one place**
@@ -269,7 +279,6 @@ export const ALREADY_PINNED = [
   'lfg',
   'bodega-tier-list',
   'pickem',
-  'game-of-the-month',
   'trade-court',
   'og-hall-of-fame',
   'season-leaderboard',

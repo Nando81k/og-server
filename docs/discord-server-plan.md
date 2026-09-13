@@ -32,7 +32,6 @@ in `scripts/discord/channel-names.mjs` without breaking anything.
                      🧭┃recommendations  🎴┃gacha  🔊 Watch Party
 🏆 SEASON + TOURNAMENTS
                      📊┃season-leaderboard  📝┃pickem  🗂️┃brackets
-                     🕹️┃game-of-the-month
 🐐 FANTASY           🏈┃nfl-fantasy-forum  🏀┃nba-fantasy-forum  📈┃standings
                      ⚖️┃trade-court  🔊 Draft Night
 🔞 AFTER HOURS       💨┃smoke-lounge                    (18+ only)
@@ -46,7 +45,7 @@ forums use Discord's Guidelines field instead, plus filterable tags. Both live i
 `scripts/discord/channel-guides.mjs` and are applied by `npm run seed`.
 
 No channel inherits from its category at run time, which is why confining a
-bot means touching all 44 channels rather than one category — see §4.
+bot means touching every channel rather than one category — see §4.
 
 ---
 
@@ -125,7 +124,7 @@ music is broken.
 
 What went with it: Jockie's **Guess the Song** trivia game (`m!gts`) and saved
 collections, neither of which Chip has. If the trivia game is ever wanted for
-🕹️┃game-of-the-month, re-adding one Jockie takes two minutes.
+game of the month, re-adding one Jockie takes two minutes.
 
 **Neither bot does type-ahead suggestion of song names while typing.** Tested
 directly on both. Discord supports it; the bot has to implement it and neither
@@ -167,7 +166,7 @@ own role subtracts nothing while `@everyone` still grants it. Only an explicit
 *copies* overwrites down once; a channel that isn't synced keeps its own set
 forever. Every channel here was created with its own list, so a deny placed on a
 category reaches none of them. `confineCardBot` in the setup script therefore
-writes the deny to **every channel individually** — all 44 — with an allow on
+writes the deny to **every channel individually** with an allow on
 `🎴┃gacha`.
 
 **Carl-bot's automod exemption list excludes any role carrying permissions.** So
@@ -284,10 +283,6 @@ weekly job so the two cannot disagree about what someone has scored.
   manually with reactions until someone forgets to tally.
 - **Invite tracking**: `🔗┃invite-tracking` is empty. Only matters once the
   server opens to people you don't know.
-- **`🕹️┃game-of-the-month` has no mechanism.** Jockie's Guess the Song was the
-  candidate and left with Jockie. Either it earns a new one or it folds into
-  `🏆 SEASON + TOURNAMENTS`.
-
 ---
 
 ## 9. Running things

@@ -420,7 +420,6 @@ async function main() {
     'season-leaderboard': 'Points from everything. Updated weekly.',
     pickem: 'Weekly picks. Lock them before kickoff.',
     brackets: 'Brackets, seeding, and upsets.',
-    'game-of-the-month': "What everyone's playing this month. Vote here.",
     'nfl-fantasy-forum': 'NFL league. One thread per trade, waiver, or grievance.',
     'nba-fantasy-forum': 'NBA league. Same deal.',
     standings: 'Both leagues, one place.',

@@ -58,7 +58,6 @@ export const CHANNEL_EMOJI = {
   'season-leaderboard': '📊',
   pickem: '📝',
   brackets: '🗂️',
-  'game-of-the-month': '🕹️',
   'nfl-fantasy-forum': '🏈',
   'nba-fantasy-forum': '🏀',
   standings: '📈',
@@ -136,7 +135,7 @@ export const SERVER_PLAN = [
   },
   {
     category: 'SEASON + TOURNAMENTS',
-    channels: ['season-leaderboard', 'pickem', 'brackets', 'game-of-the-month'],
+    channels: ['season-leaderboard', 'pickem', 'brackets'],
   },
   {
     category: 'FANTASY',

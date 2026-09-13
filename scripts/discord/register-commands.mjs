@@ -5,21 +5,22 @@
  *
  *   node scripts/discord/register-commands.mjs
  *
- * Application ID is on the Developer Portal's General Information page.
+ * The application and server ids come from shared/ids.mjs, so the only thing
+ * this asks for is the bot token.
  */
 
-import { askVisible, askHidden } from './prompt.mjs';
+import { askHidden } from './prompt.mjs';
 import { COMMANDS } from '../../shared/commands.mjs';
+import { GUILD_ID as DEFAULT_GUILD, APPLICATION_ID as DEFAULT_APP } from '../../shared/ids.mjs';
 
 // stdin alone decides this: stdout is piped under `npm run`, but the
 // keyboard is still there and prompts go to stderr.
 const interactive = Boolean(process.stdin.isTTY);
 
-let APP_ID = process.env.APPLICATION_ID;
-if (!APP_ID && interactive) APP_ID = await askVisible('Application ID: ');
-
-let GUILD_ID = process.env.GUILD_ID;
-if (!GUILD_ID && interactive) GUILD_ID = await askVisible('Server ID: ');
+// Both are public and live in shared/ids.mjs; the environment still wins, so
+// a test bot or another server is one prefix away.
+const APP_ID = process.env.APPLICATION_ID || DEFAULT_APP;
+const GUILD_ID = process.env.GUILD_ID || DEFAULT_GUILD;
 
 let TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN && interactive) {

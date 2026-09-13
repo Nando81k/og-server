@@ -344,8 +344,22 @@ mode, not an unfair one.
 ## 9. Running things
 
 Every script prompts for the bot token, hidden as you paste it, and never puts
-it in shell history. `GUILD_ID` and `BOT_TOKEN` in the environment skip the
-prompts.
+it in shell history. That prompt is the only one left: the server and
+application ids are public, so they live in `shared/ids.mjs` and the scripts
+read them from there. `GUILD_ID`, `APPLICATION_ID` and `BOT_TOKEN` in the
+environment override or skip.
+
+Retyping an eighteen digit id before every registration is how commands end up
+registered against the wrong application, and that failure is silent — the API
+returns 200 and the commands appear in a server nobody is looking at. A test
+asserts the guild id in `shared/ids.mjs` matches the one in `wrangler.toml`,
+because the Worker reads its own copy at runtime and two copies of one number
+is exactly the thing that drifts.
+
+| | |
+|---|---|
+| Application ID (OG Bot) | `1546707619857702962` |
+| Server ID (The OGs Server) | `1546707076460445787` |
 
 | Command | Does | When |
 |---|---|---|

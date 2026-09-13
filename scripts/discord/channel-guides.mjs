@@ -143,9 +143,20 @@ Post your pulls. Nobody wants to see them. Post them anyway.`,
 
   brackets: `**tournaments run here**
 
-Seeding, matchups and results for 2K and fighting game tourneys. When one is live, the bracket link gets pinned at the top of this channel — open it to see who you play next.
+Seeding, matchups and results for 2K and fighting game tourneys. OG Bot runs the bracket — no site to sign up on and no link to lose.
 
-**The format, so nobody has to argue about it mid-tournament.**
+**Running one**
+
+— A mod opens it with \`/bracket create\`
+— Everybody runs \`/bracket join\`
+— A mod runs \`/bracket start\`, which draws it
+— \`/bracket view\` any time to see who you play next
+
+**Report your set the moment it ends.** \`/bracket report\` — start typing a name and it offers the sets waiting on a result, so there is no match number to remember. Either player can report, and so can a mod. The whole bracket stalls on one unreported set.
+
+Reported it wrong? A mod runs \`/bracket undo\` and it goes back. That works right up until the grand final — once that lands the tournament closes and points go out, and a fix after that is \`/award\`.
+
+**The format, so nobody argues about it mid-tournament.**
 
 Double elimination. You have to lose twice to be out, because one bad matchup in round one shouldn't end your whole night.
 
@@ -153,22 +164,18 @@ Sets are best of 3 until winners and losers finals, then best of 5.
 
 Grand finals reset: if the player coming out of losers wins the first set, you play a second one to decide it. They had to lose twice to get there; the other player hasn't lost yet.
 
-Seeding puts the two strongest entrants on opposite halves of the bracket so they can't meet in round one.
+The draw is random — not by skill and not by who signed up first. A seeding everybody can argue about is worse than a draw nobody can.
 
-**Report your set the moment it ends.** The whole bracket stalls on one unreported match, and whoever is waiting on you is sitting there doing nothing.
+**What a placing is worth**, paid out the moment the bracket ends:
 
-**Game of the month runs here too.** It had its own channel and sat empty — a vote every few weeks doesn't need a room of its own, and it belongs next to the brackets it feeds.
+— Win it: 50
+— Runner up: 30
+— 3rd: 20 · 4th: 12
+— Top 8: 6 · Entered: 2
 
-Nominate a game. React to vote. The winner is what everybody's playing next month — the one thing we all have in common for four weeks.
+They land in {#season-leaderboard} on their own. Nobody has to remember to hand them out.
 
-— Nominations open the last week of the month
-— One nomination each, vote for as many as you want
-— Winner gets a pinned thread
-
-It doesn't have to be new and it doesn't have to be good. Some of the best months have been bad games.
-
-Placements feed the season leaderboard in {#season-leaderboard}.`,
-
+**Game of the month runs here too.** Nominate a game, react to vote, and the winner is what everybody's playing next month. Nominations open the last week of the month, one each, and the winner gets a pinned thread.`,
   standings: `**both leagues, one place**
 
 Nothing here yet. This fills in once the Sleeper and ESPN leagues actually exist.

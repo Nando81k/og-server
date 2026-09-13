@@ -31,15 +31,29 @@ import {
   upsertTeams as dbUpsertTeams, getTeams,
   alreadyDone as dbAlreadyDone, markDone as dbMarkDone,
   awardPoints, seasonAwards as dbSeasonAwards,
+  activeTournament, createTournament, tournamentEntrants, joinTournament,
+  leaveTournament, startTournament, recordResult, closeTournament,
 } from './db.mjs';
+import {
+  drawSeeds, replay, canReport, reportChoices,
+  signupMessage, bracketMessage, resultsMessage, awardsFor,
+  openMatches as bracketOpenMatches, isComplete as bracketIsComplete,
+  MIN_ENTRANTS, MAX_ENTRANTS,
+} from './tournament.mjs';
+import { BRACKET_MOD_ONLY } from '../../shared/commands.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
+const AUTOCOMPLETE = 4;
 const PONG = 1;
 const REPLY = 4;
+const AUTOCOMPLETE_RESULT = 8;
+
+/** Only the person who ran the command sees the reply. */
+const PRIVATE = 64;
 
 /** Discord channel type for a guild voice channel. */
 const GUILD_VOICE = 2;
@@ -58,6 +72,227 @@ function optionsOf(interaction) {
   const out = {};
   for (const o of interaction?.data?.options ?? []) out[o.name] = o.value;
   return out;
+}
+
+/**
+ * The chosen subcommand of a grouped command like /bracket.
+ *
+ * Discord nests these: data.options is a one-element list holding the
+ * subcommand, whose own options are the arguments the user actually filled in.
+ */
+function subcommandOf(interaction) {
+  const sub = (interaction?.data?.options ?? [])[0] ?? {};
+  const args = {};
+  for (const o of sub.options ?? []) args[o.name] = o.value;
+  return { name: sub.name ?? '', args, options: sub.options ?? [] };
+}
+
+const say = (content, extra = {}) => ({ content, allowed_mentions: { parse: [] }, ...extra });
+const onlyYou = (content) => ({ content, flags: PRIVATE });
+
+/** Longest tournament name the points ledger can carry a reason for. */
+export const MAX_TOURNAMENT_NAME = 80;
+
+/** What to call someone: their server nickname first, then their real name. */
+export function displayNameOf(member) {
+  return member?.nick
+    || member?.user?.global_name
+    || member?.user?.username
+    || 'someone';
+}
+
+/**
+ * Every /bracket subcommand.
+ *
+ * One tournament runs at a time, so nothing here takes an id — each subcommand
+ * resolves the open one itself. The bracket is never stored: it is replayed
+ * from the draw and the list of results on every call, which is what makes the
+ * undo exact and means two commands can never disagree about the state.
+ */
+export async function handleBracket(interaction, env) {
+  const season = Number(env.SEASON);
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const isMod = hasManageMessages(interaction.member);
+  const { name: sub, args } = subcommandOf(interaction);
+
+  // Discord can only hide a whole command, never one subcommand, so these four
+  // are visible to everyone and refused here. See shared/commands.mjs.
+  if (BRACKET_MOD_ONLY.includes(sub) && !isMod) {
+    return onlyYou(`Only mods can do that. You can \`/bracket join\`, \`view\` and \`report\`.`);
+  }
+
+  const active = await activeTournament(env.DB, season);
+
+  if (sub === 'create') {
+    if (active) {
+      return onlyYou(
+        `**${active.name}** is still going. Finish it, or \`/bracket cancel\` it first.`
+      );
+    }
+    const name = String(args.name ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_TOURNAMENT_NAME);
+    if (!name) return onlyYou('Give it a name.');
+    await createTournament(env.DB, {
+      id: crypto.randomUUID(),
+      season,
+      name,
+      channelId: interaction.channel_id,
+      createdBy: userId,
+    });
+    return say(signupMessage({ name, entrants: [] }));
+  }
+
+  if (!active) {
+    return onlyYou('No tournament is running. A mod opens one with `/bracket create`.');
+  }
+
+  if (sub === 'join' || sub === 'leave') {
+    if (active.status !== 'signup') {
+      return onlyYou(`**${active.name}** has already been drawn — the bracket is set.`);
+    }
+    if (sub === 'join') {
+      const entrants = await tournamentEntrants(env.DB, active.id);
+      if (entrants.length >= MAX_ENTRANTS && !entrants.some((e) => e.userId === userId)) {
+        return onlyYou(`**${active.name}** is full at ${MAX_ENTRANTS}.`);
+      }
+      await joinTournament(env.DB, active.id, {
+        userId,
+        displayName: displayNameOf(interaction.member),
+      });
+    } else {
+      const removed = await leaveTournament(env.DB, active.id, userId);
+      if (!removed) return onlyYou('You were not in it.');
+    }
+    return say(signupMessage({
+      name: active.name,
+      entrants: await tournamentEntrants(env.DB, active.id),
+    }));
+  }
+
+  if (sub === 'start') {
+    if (active.status !== 'signup') return onlyYou(`**${active.name}** is already running.`);
+    const entrants = await tournamentEntrants(env.DB, active.id);
+    if (entrants.length < MIN_ENTRANTS) {
+      return onlyYou(
+        `Only ${entrants.length} signed up. A bracket needs at least ${MIN_ENTRANTS}.`
+      );
+    }
+    const seeds = drawSeeds(entrants.map((e) => e.userId));
+    // Refused means somebody else drew it in the meantime. Drawing twice would
+    // reshuffle a bracket people are already playing.
+    if (!await startTournament(env.DB, active.id, seeds)) {
+      return onlyYou('Someone just started it — `/bracket view` for the draw.');
+    }
+    return say(bracketMessage({ name: active.name, bracket: replay(seeds, []) }));
+  }
+
+  if (sub === 'view') {
+    if (active.status === 'signup') {
+      return say(signupMessage({
+        name: active.name,
+        entrants: await tournamentEntrants(env.DB, active.id),
+      }));
+    }
+    return say(bracketMessage({
+      name: active.name,
+      bracket: replay(active.seeds, active.results),
+    }));
+  }
+
+  if (sub === 'cancel') {
+    await closeTournament(env.DB, active.id, 'cancelled');
+    return say(`**${active.name}** is off. No points were awarded.`);
+  }
+
+  if (active.status !== 'running') {
+    return onlyYou(`**${active.name}** has not been drawn yet.`);
+  }
+
+  const bracket = replay(active.seeds, active.results);
+
+  if (sub === 'undo') {
+    if (active.results.length === 0) return onlyYou('Nothing has been reported yet.');
+    const dropped = active.results[active.results.length - 1];
+    const kept = active.results.slice(0, -1);
+    if (!await recordResult(env.DB, active.id, active.resultsRaw, kept)) {
+      return onlyYou('Something else changed the bracket just now. Try again.');
+    }
+    return say(
+      `Took back \`${dropped.match}\`. It is playable again.\n\n` +
+      bracketMessage({ name: active.name, bracket: replay(active.seeds, kept) })
+    );
+  }
+
+  if (sub === 'report') {
+    const match = bracketOpenMatches(bracket).find((m) => m.id === args.match);
+    if (!match) {
+      return onlyYou(
+        `\`${args.match}\` is not a match waiting on a result. \`/bracket view\` for what is.`
+      );
+    }
+    if (!canReport(match, userId, { isMod })) {
+      return onlyYou('Only the two players in that set, or a mod, can report it.');
+    }
+    const winner = args.winner;
+    if (winner !== match.a && winner !== match.b) {
+      return onlyYou(`<@${winner}> is not in \`${match.id}\`.`);
+    }
+
+    const results = [...active.results, { match: match.id, winner }];
+    // Refused means somebody reported another set between this command reading
+    // the bracket and writing to it. Overwriting would lose their result.
+    if (!await recordResult(env.DB, active.id, active.resultsRaw, results)) {
+      return onlyYou('Someone reported at the same moment. Run it again.');
+    }
+
+    const next = replay(active.seeds, results);
+    if (!bracketIsComplete(next)) {
+      return say(bracketMessage({ name: active.name, bracket: next }));
+    }
+
+    await payOutTournament(env.DB, season, active, next, userId);
+    return say(
+      resultsMessage({ name: active.name, bracket: next }) +
+      '\nWrong result? A mod can correct it with `/award`.'
+    );
+  }
+
+  return onlyYou('Not something I handle.');
+}
+
+/**
+ * Write a finished tournament's placings into the season points ledger.
+ *
+ * Guarded by a done-marker for the same reason the weekly pick'em job is: the
+ * ledger is append-only and has no idea that two rows for the same placing are
+ * a mistake, so paying out twice would double everyone's points with nothing
+ * to distinguish the duplicate from a real second award.
+ */
+export async function payOutTournament(db, season, tournament, bracket, awardedBy) {
+  const marker = `bracket:${tournament.id}:awarded`;
+  if (await dbAlreadyDone(db, marker)) return false;
+  for (const a of awardsFor(bracket, tournament.name)) {
+    await awardPoints(db, {
+      season,
+      userId: a.userId,
+      amount: a.amount,
+      reason: a.reason,
+      awardedBy,
+    });
+  }
+  await dbMarkDone(db, marker);
+  await closeTournament(db, tournament.id, 'done');
+  return true;
+}
+
+/** The playable matches, as the picker list on /bracket report's match option. */
+export async function handleBracketAutocomplete(interaction, env) {
+  const active = await activeTournament(env.DB, Number(env.SEASON));
+  if (!active || active.status !== 'running') return [];
+  const { options } = subcommandOf(interaction);
+  const typed = options.find((o) => o.focused)?.value ?? '';
+  const entrants = await tournamentEntrants(env.DB, active.id);
+  const names = Object.fromEntries(entrants.map((e) => [e.userId, e.displayName]));
+  return reportChoices(replay(active.seeds, active.results), names, typed);
 }
 
 export async function handleLfg(interaction, env, api) {
@@ -512,6 +747,35 @@ export default {
           allowed_mentions: { parse: [] },
         },
       });
+    }
+
+    // Fires as the user types into /bracket report's match option. Discord
+    // gives the whole round trip about three seconds, which is why entrant
+    // names are stored at sign-up instead of fetched here.
+    if (interaction.type === AUTOCOMPLETE && interaction.data?.name === 'bracket') {
+      try {
+        return json({
+          type: AUTOCOMPLETE_RESULT,
+          data: { choices: await handleBracketAutocomplete(interaction, env) },
+        });
+      } catch (err) {
+        // An empty list reads as "no suggestions". Anything else leaves the
+        // picker spinning until it times out.
+        console.error(err);
+        return json({ type: AUTOCOMPLETE_RESULT, data: { choices: [] } });
+      }
+    }
+
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'bracket') {
+      try {
+        return json({ type: REPLY, data: await handleBracket(interaction, env) });
+      } catch (err) {
+        console.error(err);
+        return json({
+          type: REPLY,
+          data: { content: `Could not do that: ${err.message}`, flags: PRIVATE },
+        });
+      }
     }
 
     return json({ type: REPLY, data: { content: 'Not something I handle.', flags: 64 } });

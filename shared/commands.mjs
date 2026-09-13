@@ -13,6 +13,7 @@
  * stores its own copy; editing this file alone changes nothing.
  */
 
+const SUB_COMMAND = 1;
 const STRING = 3;
 const INTEGER = 4;
 const USER = 6;
@@ -75,7 +76,59 @@ export const COMMANDS = [
       },
     ],
   },
+  {
+    name: 'bracket',
+    description: 'Run a tournament',
+    // No default_member_permissions, unlike /award. Joining, viewing and
+    // reporting your own set are for everybody, and Discord can only hide a
+    // whole command, never one subcommand — so create, start, undo and cancel
+    // check for Manage Messages in the handler instead. That means those four
+    // stay visible to everyone in the picker and refuse when used, which is
+    // the lesser of the two annoyances.
+    options: [
+      {
+        type: SUB_COMMAND,
+        name: 'create',
+        description: 'Open sign-ups for a new tournament',
+        options: [
+          {
+            name: 'name',
+            description: 'What to call it — shows on every post and on the leaderboard',
+            type: STRING,
+            required: true,
+          },
+        ],
+      },
+      { type: SUB_COMMAND, name: 'join', description: 'Put your name in' },
+      { type: SUB_COMMAND, name: 'leave', description: 'Take your name out before it starts' },
+      { type: SUB_COMMAND, name: 'start', description: 'Draw the bracket and begin' },
+      { type: SUB_COMMAND, name: 'view', description: 'Who plays who right now' },
+      {
+        type: SUB_COMMAND,
+        name: 'report',
+        description: 'Say who won your set',
+        options: [
+          {
+            name: 'match',
+            description: 'Which set — start typing a name',
+            type: STRING,
+            required: true,
+            // The list of playable matches, resolved live. Entrant names are
+            // stored at sign-up precisely so this can answer without going
+            // back to Discord for them.
+            autocomplete: true,
+          },
+          { name: 'winner', description: 'Who won it', type: USER, required: true },
+        ],
+      },
+      { type: SUB_COMMAND, name: 'undo', description: 'Take back the last reported result' },
+      { type: SUB_COMMAND, name: 'cancel', description: 'Call the whole thing off' },
+    ],
+  },
 ];
+
+/** The subcommands of /bracket only a mod may run. */
+export const BRACKET_MOD_ONLY = ['create', 'start', 'undo', 'cancel'];
 
 /** The game values /lfg offers, in the order they appear in the picker. */
 export function lfgGameChoices() {

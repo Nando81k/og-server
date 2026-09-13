@@ -1,4 +1,9 @@
-import { upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek, upsertTeams, getTeams, alreadyDone, markDone, awardPoints, seasonAwards } from './db.mjs';
+import {
+  upsertGames, getGames, setResults, savePicks, getPicks, allPicks, openWeek,
+  upsertTeams, getTeams, alreadyDone, markDone, awardPoints, seasonAwards,
+  activeTournament, createTournament, tournamentEntrants, joinTournament,
+  leaveTournament, startTournament, recordResult, closeTournament,
+} from './db.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -140,6 +145,118 @@ check('totals are numbers, not strings', totals[0].points === 30);
 check('totals are summed in SQL', /SUM\(amount\)/i.test(dbTotals.statements[0].sql));
 check('totals are scoped to the season', dbTotals.statements[0].binds[0].includes(2026));
 check('an empty ledger reads as no awards', (await seasonAwards(fakeDb([]), 2026)).length === 0);
+
+console.log('\n--- tournaments ---');
+// Several of these return whether a conditional UPDATE actually matched, which
+// the plain fake above cannot express — it always reports success with no row
+// count, and "success" is exactly the wrong answer when the WHERE matched
+// nothing.
+function changingDb(changes, rows = []) {
+  const statements = [];
+  return {
+    statements,
+    prepare(sql) {
+      const entry = { sql, binds: [] };
+      statements.push(entry);
+      const stmt = {
+        bind(...args) { entry.binds.push(args); return stmt; },
+        async run() { return { success: true, meta: { changes } }; },
+        async all() { return { results: rows }; },
+      };
+      return stmt;
+    },
+  };
+}
+
+const row = {
+  id: 't1', season: 2026, name: 'Winter Brawl', status: 'running',
+  seeds: '["a","b","c"]', results: '[{"match":"W1-1","winner":"a"}]',
+  channel_id: '123', created_by: '999', created_at: '2026-09-13T00:00:00.000Z',
+};
+
+const dbActive = fakeDb([row]);
+const active = await activeTournament(dbActive, 2026);
+check('the active tournament comes back shaped for the handler',
+  active.id === 't1' && active.name === 'Winter Brawl');
+check('the seed order is parsed, not left as text', Array.isArray(active.seeds) && active.seeds.length === 3);
+check('the results are parsed too',
+  Array.isArray(active.results) && active.results[0].match === 'W1-1');
+check('the raw results text is kept for the compare-and-swap',
+  active.resultsRaw === row.results);
+check('only an open tournament counts as active',
+  /status IN \('signup', 'running'\)/i.test(dbActive.statements[0].sql));
+check('the newest one wins if somehow there are two',
+  /ORDER BY created_at DESC LIMIT 1/i.test(dbActive.statements[0].sql));
+check('nothing open reads as no tournament', (await activeTournament(fakeDb([]), 2026)) === null);
+
+// A tournament that has not been drawn yet has no seeds at all, and a null
+// there must not come back as the string "null" or crash the replay.
+const dbSignup = fakeDb([{ ...row, status: 'signup', seeds: null, results: '[]' }]);
+const signup = await activeTournament(dbSignup, 2026);
+check('an undrawn tournament has no seeds', signup.seeds === null);
+check('an undrawn tournament has an empty results list', signup.results.length === 0);
+
+// Corrupt JSON in either column would otherwise throw inside a slash command,
+// where the only thing the user sees is the interaction failing.
+const dbJunk = fakeDb([{ ...row, seeds: 'not json', results: 'not json' }]);
+const junk = await activeTournament(dbJunk, 2026);
+check('unreadable seeds degrade to null rather than throwing', junk.seeds === null);
+check('unreadable results degrade to empty rather than throwing', junk.results.length === 0);
+
+const dbCreate = fakeDb();
+await createTournament(dbCreate, {
+  id: 't9', season: 2026, name: 'Winter Brawl', channelId: '123',
+  createdBy: '999', now: '2026-09-13T00:00:00.000Z',
+});
+check('creating writes one row', dbCreate.statements.length === 1);
+check('a new tournament opens for sign-ups', /'signup'/.test(dbCreate.statements[0].sql));
+check('a new tournament starts with no results', /'\[\]'/.test(dbCreate.statements[0].sql));
+
+const dbJoin = fakeDb();
+await joinTournament(dbJoin, 't1', { userId: '555', displayName: 'Nando', now: 'now' });
+check('joining twice does not create a second seat',
+  /ON CONFLICT\(tournament_id, user_id\)/i.test(dbJoin.statements[0].sql));
+check('joining again refreshes the stored display name',
+  /DO UPDATE SET display_name = excluded.display_name/i.test(dbJoin.statements[0].sql));
+check('the display name is stored at sign-up',
+  dbJoin.statements[0].binds[0].includes('Nando'));
+
+const dbEntrants = fakeDb([{ user_id: '555', display_name: 'Nando' }]);
+const entered = await tournamentEntrants(dbEntrants, 't1');
+check('entrants come back with their names',
+  entered[0].userId === '555' && entered[0].displayName === 'Nando');
+check('entrants are ordered by when they joined',
+  /ORDER BY joined_at/i.test(dbEntrants.statements[0].sql));
+
+check('leaving reports whether anyone was actually removed',
+  (await leaveTournament(changingDb(1), 't1', '555')) === true);
+check('leaving when you never joined reports false',
+  (await leaveTournament(changingDb(0), 't1', '555')) === false);
+
+const dbStart = changingDb(1);
+check('starting a tournament that is open succeeds',
+  (await startTournament(dbStart, 't1', ['a', 'b', 'c'])) === true);
+check('starting only applies to one still in sign-ups',
+  /status = 'signup'/i.test(dbStart.statements[0].sql));
+check('the draw is stored as the seed order',
+  dbStart.statements[0].binds[0][0] === '["a","b","c"]');
+check('starting one already drawn reports false rather than redrawing it',
+  (await startTournament(changingDb(0), 't1', ['a', 'b', 'c'])) === false);
+
+// The whole point of this one: two people reporting sets at the same moment.
+const dbResult = changingDb(1);
+check('recording a result on unchanged data succeeds',
+  (await recordResult(dbResult, 't1', '[]', [{ match: 'W1-1', winner: 'a' }])) === true);
+check('the write is conditional on what was read',
+  /WHERE id = \? AND results = \?/i.test(dbResult.statements[0].sql));
+check('the previous text is what it compares against',
+  dbResult.statements[0].binds[0][2] === '[]');
+check('a result racing another one reports false instead of erasing it',
+  (await recordResult(changingDb(0), 't1', '[]', [{ match: 'W1-1', winner: 'a' }])) === false);
+
+const dbClose = fakeDb();
+await closeTournament(dbClose, 't1', 'done');
+check('closing sets the status it is given', dbClose.statements[0].binds[0][0] === 'done');
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

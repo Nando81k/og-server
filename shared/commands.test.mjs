@@ -1,4 +1,8 @@
-import { COMMANDS, lfgGameChoices } from './commands.mjs';
+import { COMMANDS, BRACKET_MOD_ONLY, lfgGameChoices } from './commands.mjs';
+
+/** Discord's own option-type numbers, as used in commands.mjs. */
+const SUB_COMMAND = 1;
+const USER = 6;
 import { GAME_ROLES, GAME_VOICE, voiceRoomFor } from './lib.mjs';
 
 const fails = [];
@@ -44,7 +48,7 @@ check('every value fits Discord\'s 100 character limit',
 
 console.log('\n--- the commands Discord is told about ---');
 check('registers exactly the commands we mean to',
-  COMMANDS.map((c) => c.name).sort().join(',') === 'award,leaderboard,lfg,picks');
+  COMMANDS.map((c) => c.name).sort().join(',') === 'award,bracket,leaderboard,lfg,picks');
 check('every command has a name and description',
   COMMANDS.every((c) => c.name && c.description));
 check('no duplicate command names',
@@ -82,6 +86,54 @@ check('/leaderboard is registered', Boolean(board));
 // Standings nobody can look at are half a competition — this one is not gated.
 check('it is not permission gated', board.default_member_permissions === undefined);
 check('it takes no options', (board.options ?? []).length === 0);
+
+console.log('\n--- /bracket ---');
+const bracket = COMMANDS.find((c) => c.name === 'bracket');
+const subs = bracket?.options ?? [];
+const subNames = subs.map((o) => o.name);
+check('/bracket is registered', Boolean(bracket));
+check('it is built out of subcommands, not one flat command',
+  subs.length > 0 && subs.every((o) => o.type === SUB_COMMAND));
+check('every subcommand people need is there',
+  [...subNames].sort().join(',') === 'cancel,create,join,leave,report,start,undo,view');
+check('Discord allows at most 25 subcommands', subs.length <= 25);
+check('no duplicate subcommand', new Set(subNames).size === subNames.length);
+check('subcommand names are lowercase', subNames.every((n) => n === n.toLowerCase()));
+check('every subcommand describes itself',
+  subs.every((o) => o.description && [...o.description].length <= 100));
+check('every subcommand option describes itself',
+  subs.every((o) => (o.options ?? []).every((x) => x.description && [...x.description].length <= 100)));
+
+// /bracket is NOT permission gated, unlike /award, and that is deliberate:
+// Discord can only hide a whole command, so gating it would hide join, view
+// and report from everyone who is not a mod.
+check('/bracket is open to everyone in the picker',
+  bracket.default_member_permissions === undefined);
+check('the mod-only list names real subcommands',
+  BRACKET_MOD_ONLY.every((n) => subNames.includes(n)));
+check('the subcommands everyone needs are not mod gated',
+  ['join', 'leave', 'view', 'report'].every((n) => !BRACKET_MOD_ONLY.includes(n)));
+check('creating, drawing, undoing and cancelling are all mod gated',
+  ['create', 'start', 'undo', 'cancel'].every((n) => BRACKET_MOD_ONLY.includes(n)));
+
+const create = subs.find((o) => o.name === 'create');
+check('creating takes a name', create.options?.[0]?.name === 'name');
+check('the name is required', create.options[0].required === true);
+
+const report = subs.find((o) => o.name === 'report');
+check('reporting takes a match and a winner',
+  report.options.map((o) => o.name).join() === 'match,winner');
+check('both are required', report.options.every((o) => o.required === true));
+// Without this the match option is a free text box and people type "my match".
+check('the match option autocompletes',
+  report.options.find((o) => o.name === 'match').autocomplete === true);
+check('the winner is a user, so Discord resolves the id',
+  report.options.find((o) => o.name === 'winner').type === USER);
+check('only the match autocompletes — a user picker cannot',
+  report.options.filter((o) => o.autocomplete).length === 1);
+check('the subcommands that take no arguments really take none',
+  ['join', 'leave', 'start', 'view', 'undo', 'cancel']
+    .every((n) => (subs.find((o) => o.name === n).options ?? []).length === 0));
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

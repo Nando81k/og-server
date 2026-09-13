@@ -19,127 +19,141 @@ Answer the questions and you get your game roles, your borough, and the channels
 
 Change your mind whenever — the roles are self-serve and nothing here is permanent.
 
-If a channel looks missing, it's because you haven't picked the role that opens it.`,
+If a channel looks missing, it just means you haven't picked the role that opens it yet. Grab the role and it shows up.`,
 
   announcements: `**server news, rarely**
 
 Anything that changes how this place works lands here — tournaments, rule changes, dates worth putting in your phone.
 
-Kept quiet on purpose. If this channel pings you, it's worth reading.`,
+Kept quiet on purpose. If this channel pings you, it's worth a read.`,
 
   'general-chat': `**the main room**
 
 No topic. Say whatever. This is the default for anything that doesn't have its own channel yet.
 
-If a conversation takes the room over — a game, a show, a plan — there's probably a channel for it. Move it there and this stays usable for everyone else.`,
+New here? This is the easiest place to start. Say hi whenever you're ready — nobody's going to make it weird.
 
-  'sports-talk': `**local suffering, mostly**
+If a conversation really takes off — a game, a show, a plan — there's probably a channel built for it. Moving it over gives it more room and keeps this one easy to drop into.`,
+
+  'sports-talk': `**NY teams, mostly**
 
 Knicks, Nets, Yankees, Mets, Jets, Giants. Trades, injuries, and whatever happened last night.
 
-League drama has its own home in {#nfl-fantasy-forum} and {#nba-fantasy-forum} — keep it there so this channel stays about actual games.`,
+Not a New York fan? Bring your team in anyway. More fun with someone to disagree with.
+
+Fantasy league business has its own home in {#nfl-fantasy-forum} and {#nba-fantasy-forum} — keeping it there leaves this channel for the actual games.`,
 
   'pop-culture': `**music, shows, movies**
 
-Whatever's playing. Drop the link and say why it's worth the time.
+Whatever's playing. Drop the link and say why it's worth the time — that second part is what gets people to actually press play.
 
-Anime has its own category so it doesn't drown everything else out — start at {#anime}.
+Anime has its own whole category so it doesn't crowd everything else out — start at {#anime}.
 
 Spoiler-tag anything that just came out, ||like this||.`,
 
-  'deep-thoughts': `**the 3am channel**
+  'deep-thoughts': `**the late-night channel**
 
 Life, work, money, people. No sports and no games — that separation is the whole reason this channel exists.
 
-Nobody's obligated to have a take. Sometimes people just need to say the thing out loud.
+Nobody's obligated to have a take, and nobody's obligated to fix anything. Sometimes it's enough to say the thing out loud and have someone hear it.
 
-What gets said here doesn't get repeated in {#general-chat}.`,
+What gets said here stays here. It doesn't get repeated in {#general-chat}.`,
 
   highlights: `**the best of this place**
 
-React with ⭐ to anything worth keeping — a clip, a take, a screenshot, someone getting cooked. Three stars and Carl-bot copies it here on its own.
+React with ⭐ to anything worth keeping — a clip, a great take, a screenshot, a moment that made you laugh. Three stars and Carl-bot copies it here on its own.
 
 You don't post here. You nominate by reacting, wherever you already are.
 
-This is also the one channel that gets screenshotted outside the server, so it's what strangers judge us by.`,
+This is also the channel most likely to get shared outside the server, which makes it a pretty good showcase of what this place actually is.`,
 
   'irl-plans': `**actually linking up**
 
-Say what, where, and when. Put your borough in it — half the reason plans die is nobody knows who's close.
+Say what, where, and when. Adding your borough helps more than you'd think — a lot of plans stall out because nobody knows who's close.
 
-For anything with a date, use Sesh: \`/create\` makes an event people can hit yes or no on, so you know who's actually coming before you leave the house.
+For anything with a date, use Sesh: \`/create\` makes an event people can hit yes or no on, so you know who's coming before you head out.
 
-"we should link up sometime" has never once worked. Pick a day.`,
+"We should link up sometime" is a lovely thought that rarely survives contact with a calendar. Picking an actual day is most of the work.`,
 
-  'mta-complaints': `**therapy**
+  'mta-complaints': `**vent here, we've all been there**
 
-Delays, reroutes, the guy with the speaker, the smell. Get it out here so it stops leaking into every other channel.
+Delays, reroutes, the guy with the speaker, the mystery puddle. Get it out here and it stops leaking into every other channel.
 
-Photos encouraged. Nobody believes you otherwise.`,
+Photos encouraged. Half the fun is the evidence.
+
+Also a good place to ask "is the L actually running" before you commit to a plan.`,
 
   '2k': `**park, myteam, and badge arguments**
 
-Builds, clips, and whoever's been ducking. Run {#lfg} when you want a squad — it pings everyone with the 2K role and points at the voice room.
+Builds, clips, and whoever's on tonight. Run {#lfg} when you want a squad — it pings everyone with the 2K role and points at the voice room.
 
-Post an L as readily as a W. It's funnier, and everyone knows anyway.`,
+Post an L as readily as a W. The bad ones make better clips anyway.
 
-  cod: `**loadouts and lobby blame**
+All skill levels welcome here. Nobody started good.`,
+
+  cod: `**loadouts and lobbies**
 
 Class setups, clips, and whatever the meta is this week.
 
-{#lfg} pings the CoD role and links the voice room. Use it — nobody's reading this channel at 1am, but a ping lands.`,
+{#lfg} pings the CoD role and links the voice room. Use it — a ping lands a lot better than a message in here at 1am.
+
+Ask if you want help tuning a class. Somebody always has opinions.`,
 
   madden: `**franchise and CPU conspiracy theories**
 
-Franchise saves, Ultimate Team, sliders, and the fourth-quarter comeback the CPU always gets.
+Franchise saves, Ultimate Team, sliders, and the fourth-quarter comeback the CPU always seems to find.
 
 Looking for a game? {#lfg} pings the Madden role.
 
 Fantasy football is a separate thing and lives in {#nfl-fantasy-forum}.`,
 
-  'fighting-games': `**sets, frame data, getting bodied**
+  'fighting-games': `**sets, frame data, and getting better**
 
-Any game — traditional fighters, platform fighters, whatever's in rotation. Post your main and catch strays.
+Any game — traditional fighters, platform fighters, whatever's in rotation. Post your main, ask about a matchup, or just come get some games in.
 
-{#lfg} pings the FGC role and points at the voice room. First to five, loser counterpicks, nobody rage quits.`,
+{#lfg} pings the FGC role and points at the voice room. First to five, loser counterpicks.
+
+New to fighting games? Say so. Plenty of people here are happy to slow it down and actually explain what hit you.`,
 
   anime: `**the main anime room**
 
 Airing, finished, obscure, all of it. This season's shows have {#currently-watching} and "what should I watch" has {#recommendations} — this is for everything else.
 
-Spoiler rule: if it aired this week, tag it ||like this||. Older than a season is fair game, but read the room.`,
+Spoiler rule: if it aired this week, tag it ||like this||. Older than a season is usually fair game, but if it's a big moment, tag it anyway. Costs you nothing.`,
 
   'currently-watching': `**this season, week by week**
 
-What you're keeping up with as it airs. Episode reactions belong here so {#anime} doesn't turn into a minefield.
+What you're keeping up with as it airs. Episode reactions belong here so {#anime} stays safe to scroll.
 
 Name the show and episode before you say anything — **AOT ep 7** — then your take. Anything past that gets bars, ||like this||.
 
-**Running a watch party.** Say what and when here and ping @Watch Party — it's self-assignable, so anyone who wants in already has it. For anything more than an hour out, use Sesh: \`/create\` makes an event people can RSVP to, so you know who's actually turning up.
+**Running a watch party.** Say what and when here and ping @Watch Party — it's self-assignable, so anyone who wants in already has it. For anything more than an hour out, use Sesh: \`/create\` makes an event people can RSVP to, so you know who's turning up.
 
 Everyone piles into {#watch-party}. One person plays the episode and hits **Go Live** on their browser window — only the host needs a subscription, everyone else just watches.
 
 **If Go Live shows a black screen**, that's DRM, and it's fixable. Share the *window*, not the whole screen — that alone usually does it. Still black: turn off hardware acceleration in your browser settings. Firefox handles this best of the three.
 
-Streams cap at 720p without Nitro. Fine for watching together, so don't pick the episode you've been saving.`,
+Streams cap at 720p without Nitro. Fine for watching together, so maybe not the episode you've been saving all season.`,
 
-  manga: `**assume everyone here is ahead**
+  manga: `**readers are usually ahead in here**
 
-Manga, manhwa, manhua. This is the one room where being ahead of the anime is the default, so if you're watching and not reading, tread carefully.
+Manga, manhwa, manhua. This is the one room where being ahead of the anime is normal, so if you're anime-only, scroll with a little care.
 
-Still tag the last couple of chapters. Being ahead isn't a licence to ruin it.`,
+Tag the last couple of chapters anyway. Being ahead isn't a reason to take the moment away from someone.`,
 
   recommendations: `**what to watch next**
 
-Say what it is, and say why. "watch X" is useless. "watch X if you liked Y" is what people actually act on.
+Say what it is, and say why. "Watch X if you liked Y" gives people something to go on, and it's the kind that actually gets watched.
 
-Asking counts too — name a couple of things you liked and the room will do the rest.`,
+Asking counts too — name a couple of things you liked and the room will take it from there.
+
+No guilty pleasures in here. Recommend the thing.`,
 
   gacha: `**card bots live here**
 
-Summons, pulls, trades, and whatever bot minigame is running. Penned in one room so it doesn't fill every other channel with card spam.
+Summons, pulls, trades, and whatever bot minigame is running. Kept to one room so the rolls don't fill up every other channel.
 
-Post your pulls. Nobody wants to see them. Post them anyway.`,
+Post your pulls — the great ones and the disasters. The disasters get more reactions.`,
 
   brackets: `**tournaments run here**
 
@@ -152,19 +166,19 @@ Seeding, matchups and results for 2K and fighting game tourneys. OG Bot runs the
 — A mod runs \`/bracket start\`, which draws it
 — \`/bracket view\` any time to see who you play next
 
-**Report your set the moment it ends.** \`/bracket report\` — start typing a name and it offers the sets waiting on a result, so there is no match number to remember. Either player can report, and so can a mod. The whole bracket stalls on one unreported set.
+**Report your set when it ends.** \`/bracket report\` — start typing a name and it offers the sets waiting on a result, so there's no match number to remember. Either player can report it, and so can a mod. Everyone behind you in the bracket is waiting on that result, so it's worth doing right away.
 
 Reported it wrong? A mod runs \`/bracket undo\` and it goes back. That works right up until the grand final — once that lands the tournament closes and points go out, and a fix after that is \`/award\`.
 
-**The format, so nobody argues about it mid-tournament.**
+**The format, so nobody has to wonder mid-tournament.**
 
-Double elimination. You have to lose twice to be out, because one bad matchup in round one shouldn't end your whole night.
+Double elimination. You have to lose twice to be out, because one rough matchup in round one shouldn't end your whole night.
 
 Sets are best of 3 until winners and losers finals, then best of 5.
 
 Grand finals reset: if the player coming out of losers wins the first set, you play a second one to decide it. They had to lose twice to get there; the other player hasn't lost yet.
 
-The draw is random — not by skill and not by who signed up first. A seeding everybody can argue about is worse than a draw nobody can.
+The draw is random — not by skill, not by who signed up first. Keeps it simple and nobody has to defend a seeding.
 
 **What a placing is worth**, paid out the moment the bracket ends:
 
@@ -173,52 +187,54 @@ The draw is random — not by skill and not by who signed up first. A seeding ev
 — 3rd: 20 · 4th: 12
 — Top 8: 6 · Entered: 2
 
-They land in {#season-leaderboard} on their own. Nobody has to remember to hand them out.
+Everybody who enters scores. They land in {#season-leaderboard} on their own.
 
 **Game of the month runs here too.** Nominate a game, react to vote, and the winner is what everybody's playing next month. Nominations open the last week of the month, one each, and the winner gets a pinned thread.`,
   standings: `**both leagues, one place**
 
 Nothing here yet. This fills in once the Sleeper and ESPN leagues actually exist.
 
-The plan: one command pulls both leagues into a single board, and a weekly recap posts here with scores, the biggest blowout, and the worst bench decision of the week.`,
+The plan: one command pulls both leagues into a single board, and a weekly recap posts here with scores, the biggest blowout, and the bench decision somebody's going to be hearing about all week.`,
 
   'smoke-lounge': `**18+ only**
 
-You needed the 18+ role to see this, which means you said you were of age. Don't make that a lie.
+You needed the 18+ role to get in here, which means you told us you're of age. We're taking your word for it.
 
 Slow channel. Nothing said here goes anywhere else.
 
-No sourcing, and nothing that would get the server reported. Use sense.`,
+No sourcing, and nothing that would put the server at risk. Use your judgment.`,
 
   'mod-chat': `**mods only**
 
-Anything about a member, a report, or a call that needs a second opinion before it happens.
+Anything about a member, a report, or a call that could use a second opinion before it happens.
 
 Decisions get made here and then explained wherever they land. Nobody should be moderated without knowing why.`,
 
-  'warn-log': `**written automatically — don't post here**
+  'warn-log': `**written automatically — no need to post here**
 
 Carl-bot logs deletes, edits, purges, joins and leaves, role changes, nickname and avatar changes, bans, unbans and timeouts into this channel, plus anything automod catches.
 
-Read it, don't type in it. A human message in here makes the log harder to scan on the day it actually matters.`,
+Voice events are switched off on purpose — with eight standing voice rooms they'd bury everything else.
+
+It's a record, not a scoreboard. Most of what lands here is somebody changing their avatar.`,
 
   'invite-tracking': `**who brought whom**
 
 Empty until invite tracking is switched on. After that, every join lands here with the invite that brought them.
 
-Worth having before the server opens up rather than after — if someone is inviting people who cause problems, this is the only way to see the pattern.`,
+Mostly nice for seeing who keeps bringing good people in — and useful for spotting a pattern early if one ever needs spotting.`,
 
   'og-chat': `**the group chat, continued**
 
 Same people, same conversations, none of the audience. If it would have gone in the group chat, it goes here.
 
-OG isn't earnable and never will be — {#welcome-rules} says why. Nobody in here owes anyone an explanation of that.`,
+OG just means you were around before the server went public — a timestamp, not a rank. {#welcome-rules} has the long version.`,
 
   'og-plans': `**before it's a server thing**
 
 Ideas, events and decisions while they're still half-formed. Once something's real it moves to {#announcements} and belongs to everybody.
 
-Also where you get to say "should we even do this" without it becoming a whole debate.`,
+Also the place to say "should we even do this" without it turning into a whole thing.`,
 };
 
 /**
@@ -233,7 +249,7 @@ export const FORUM_GUIDELINES = {
 This is a forum, not a chat. Every trade, waiver claim, injury scare and grievance gets its own post, so a Tuesday argument doesn't bury a Thursday one.
 
 **Naming a post**
-Put the actual subject in the title. "Trade: my Kamara for your Hall" beats "thoughts?" — people scan titles, which is the entire point of a forum.
+Put the actual subject in the title. "Trade: my Kamara for your Hall" beats "thoughts?" — people scan titles, which is the whole point of a forum.
 
 **What goes where**
 — Proposed trades go to {#trade-court} first, where the server votes fair / collusion / robbery over 24 hours
@@ -241,9 +257,9 @@ Put the actual subject in the title. "Trade: my Kamara for your Hall" beats "tho
 — NFL talk that isn't about our league belongs in {#sports-talk}
 
 **House rules**
-Collusion gets a trade reversed, not a debate. Set your lineup — a dead team ruins someone else's week as much as your own. Last place wears the punishment role until the next draft.
+Collusion gets a trade reversed — that's a call, not a debate. Set your lineup when you can; a team that checks out takes the fun out of someone else's week too. Last place wears the punishment role until the next draft, and wears it proudly.
 
-Trash talk is expected. Keep it about the football.`,
+Talk your trash and keep it about the football. If someone's new to fantasy, help them out — a league where everyone knows what they're doing is a better league.`,
 
   'nba-fantasy-forum': `**NBA fantasy — one thread per thing**
 
@@ -255,9 +271,9 @@ Basketball is a games-played game. Streaming, rest days and back-to-backs decide
 **What goes where**
 — Proposed trades go to {#trade-court} for the same 24 hour vote
 — Standings and the weekly recap live in {#standings}
-— Knicks and Nets suffering belongs in {#sports-talk}
+— Knicks and Nets talk belongs in {#sports-talk}
 
-Punishment role for last place applies here too. Set your lineup.`,
+Punishment role for last place applies here too. Set your lineup — and ask if you're not sure about streaming, it's genuinely confusing your first season and everyone here learned it from someone.`,
 };
 
 /**

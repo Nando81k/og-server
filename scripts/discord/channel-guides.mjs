@@ -290,3 +290,32 @@ export function renderGuide(text, idBySlug) {
     return id ? `<#${id}>` : `#${slug}`;
   });
 }
+
+/**
+ * Whether a channel's stored guidelines already match what we would write.
+ *
+ * Compared loosely on purpose. A topic differing only in line endings or
+ * trailing whitespace is the same guidelines as far as a reader is concerned,
+ * and rewriting it every run spends an API call to change nothing. A missing
+ * topic reads as empty rather than throwing.
+ */
+export function sameTopic(current, wanted) {
+  const tidy = (t) => String(t ?? '').replace(/\r\n/g, '\n').trim();
+  return tidy(current) === tidy(wanted);
+}
+
+/**
+ * Index of the first character where two topics diverge, or -1 if they match.
+ *
+ * Only used to explain a write in the log. Both forums were being rewritten on
+ * every run, and finding out why meant guessing, because the script said what
+ * it did but never what it saw. This says whether the stored copy is missing,
+ * truncated, or altered — and where — without needing a token to investigate.
+ */
+export function firstDifference(current, wanted) {
+  const a = String(current ?? '');
+  const b = String(wanted ?? '');
+  const shared = Math.min(a.length, b.length);
+  for (let i = 0; i < shared; i += 1) if (a[i] !== b[i]) return i;
+  return a.length === b.length ? -1 : shared;
+}

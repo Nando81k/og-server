@@ -29,6 +29,8 @@ import {
   FORUM_TAGS,
   ALREADY_PINNED,
   renderGuide,
+  sameTopic,
+  firstDifference,
 } from './channel-guides.mjs';
 
 const DRY_RUN = process.env.DRY_RUN === '1';
@@ -180,13 +182,34 @@ for (const [slug, template] of Object.entries(FORUM_GUIDELINES)) {
   }
 
   const topic = renderGuide(template, idBySlug);
-  if (channel.topic === topic) {
+
+  // Read the channel itself rather than trusting the guild's channel list.
+  // Both forums were being rewritten on every single run, while all 26 text
+  // channels correctly reported themselves current — and the text path works
+  // because it compares a message it fetched per channel. The difference is
+  // the source: the bulk list does not carry a usable `topic` for forums, so
+  // the comparison could never be true and the script rewrote identical text
+  // forever.
+  let current = channel.topic;
+  try {
+    current = (await discord('GET', `/channels/${channel.id}`)).topic;
+  } catch (err) {
+    console.warn(`! Could not read #${slug}'s current guidelines: ${err.message}`);
+  }
+
+  if (sameTopic(current, topic)) {
     console.log(`Already current: #${slug} guidelines`);
     skipped += 1;
     continue;
   }
 
-  console.log(`${DRY_RUN ? '[dry run] ' : ''}Setting guidelines on #${slug}`);
+  // Say what was seen, not just what is being done. If this still rewrites on
+  // every run, this line is the evidence for why, and nobody has to guess a
+  // second time.
+  const at = firstDifference(current, topic);
+  const because =
+    current == null ? 'none set' : `differs at character ${at} of ${[...topic].length}`;
+  console.log(`${DRY_RUN ? '[dry run] ' : ''}Setting guidelines on #${slug} (${because})`);
   if (!DRY_RUN) {
     await discord('PATCH', `/channels/${channel.id}`, { topic });
     await sleep(400);

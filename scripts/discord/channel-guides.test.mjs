@@ -1,5 +1,6 @@
 import {
   GUIDES, FORUM_GUIDELINES, FORUM_TAGS, ALREADY_PINNED, referencedSlugs, renderGuide,
+  sameTopic, firstDifference,
 } from './channel-guides.mjs';
 import { planChannels, VOICE, FORUM } from './channel-names.mjs';
 
@@ -115,6 +116,28 @@ check('text with no placeholder is untouched',
   renderGuide('nothing here', ids) === 'nothing here');
 check('no rendered guide keeps a placeholder',
   Object.values(GUIDES).every((t) => !/\{#/.test(renderGuide(t, new Map(channels.map((c, i) => [c.name, String(i)]))))));
+
+console.log('\n--- comparing stored guidelines ---');
+// Both forums were rewritten on every run because the comparison could never
+// be true. These pin the two ways that happens: a topic that is absent, and a
+// topic that matches but for whitespace Discord may normalise.
+check('identical topics match', sameTopic('a\nb', 'a\nb'));
+check('a missing topic never matches real text', !sameTopic(undefined, 'guidelines'));
+check('a null topic never matches real text', !sameTopic(null, 'guidelines'));
+check('a missing topic matches empty', sameTopic(undefined, ''));
+check('carriage returns do not count as a change', sameTopic('a\r\nb', 'a\nb'));
+check('trailing whitespace does not count as a change', sameTopic('text\n\n', 'text'));
+check('real edits are still seen', !sameTopic('old text', 'new text'));
+check('a truncated topic is seen', !sameTopic('guide', 'guidelines'));
+
+console.log('\n--- explaining a rewrite ---');
+// Only used for the log line, but that line is the evidence if this recurs.
+check('identical topics report no difference', firstDifference('same', 'same') === -1);
+check('a missing topic differs at the start', firstDifference(undefined, 'abc') === 0);
+check('reports where they diverge', firstDifference('abcdef', 'abcXef') === 3);
+check('a truncated topic differs at its end', firstDifference('abc', 'abcdef') === 3);
+check('an over-long topic differs at the shorter end', firstDifference('abcdef', 'abc') === 3);
+check('survives both being empty', firstDifference('', '') === -1);
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

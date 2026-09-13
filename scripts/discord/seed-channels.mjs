@@ -46,8 +46,8 @@ if (!TOKEN && interactive) {
 
 if (!TOKEN || !GUILD_ID) {
   console.error(
-    'Need a bot token and a server ID. Run this in a terminal to be prompted for both,\n' +
-      'or set BOT_TOKEN and GUILD_ID in the environment for a non-interactive run.'
+    'Need a bot token. Run this in a terminal to be prompted for it,\n' +
+      'or set BOT_TOKEN in the environment for a non-interactive run.'
   );
   process.exit(1);
 }

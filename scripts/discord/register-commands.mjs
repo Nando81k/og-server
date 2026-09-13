@@ -28,7 +28,10 @@ if (!TOKEN && interactive) {
 }
 
 if (!APP_ID || !GUILD_ID || !TOKEN) {
-  console.error('Need APPLICATION_ID, GUILD_ID and BOT_TOKEN.');
+  console.error(
+    'Need a bot token. Run this in a terminal to be prompted for it,\n' +
+      'or set BOT_TOKEN in the environment for a non-interactive run.'
+  );
   process.exit(1);
 }
 

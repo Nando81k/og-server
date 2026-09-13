@@ -48,6 +48,8 @@ export const COMMANDS = [
     ],
   },
   { name: 'picks', description: 'Get your link to this week’s pick’em', options: [] },
+  // Open to everyone: standings nobody can look at are half a competition.
+  { name: 'leaderboard', description: 'Season standings so far', options: [] },
   {
     name: 'award',
     description: 'Give season points for something the pick’em cannot score',

@@ -81,3 +81,37 @@ export function lockedMessage({ week, games = [], leaderboardChannelId } = {}) {
     `Standings post to ${board} the morning after a week finishes.`
   );
 }
+
+/**
+ * The standings, on demand.
+ *
+ * The weekly post is a moment; this is the thing you check on a Wednesday to
+ * see whether you are still in it. It says where the numbers came from,
+ * because a total with no explanation starts an argument rather than settling
+ * one.
+ */
+export function standingsMessage({ table = [], weeksPlayed = 0, leaderboardChannelId } = {}) {
+  const board = leaderboardChannelId ? `<#${leaderboardChannelId}>` : '#season-leaderboard';
+
+  // The ordinary state early in a season, and the one most likely to be read
+  // as a broken command. Say why it is empty rather than showing an empty list.
+  if (table.length === 0) {
+    return (
+      '**Season standings**\n\n' +
+      'Nothing scored yet. A week only scores once every game in it is final, ' +
+      'so the board stays empty mid-week by design.\n\n' +
+      `Run \`/picks\` to get in. Weekly results post to ${board}.`
+    );
+  }
+
+  const lines = table.map((r, i) => {
+    // Someone can hold points from an award without ever entering a week, so
+    // the pick'em detail only appears when there is some.
+    const weeks = r.weeks === 1 ? '1 week' : `${r.weeks} weeks`;
+    const detail = r.weeks > 0 ? ` · ${r.correct} correct in ${weeks}` : '';
+    return `${i + 1}. <@${r.userId}> — **${r.points}**${detail}`;
+  });
+
+  const scored = weeksPlayed === 1 ? '1 week scored' : `${weeksPlayed} weeks scored`;
+  return `**Season standings** · ${scored}\n${lines.join('\n')}`;
+}

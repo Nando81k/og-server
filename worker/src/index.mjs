@@ -27,13 +27,14 @@ import { validateSubmission, lockTime, hasManageMessages, validateAward } from '
 import {
   getGames, getPicks, savePicks, openWeek,
   upsertGames as dbUpsert, setResults as dbSetResults, allPicks as dbAllPicks,
+  allPicks as allPicks_,
   upsertTeams as dbUpsertTeams, getTeams,
   alreadyDone as dbAlreadyDone, markDone as dbMarkDone,
   awardPoints, seasonAwards as dbSeasonAwards,
 } from './db.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
-import { scoreWeek, buildStandings, mergeAwards } from './scoring.mjs';
-import { weekOneAnnouncement, lockedMessage } from './announce.mjs';
+import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
+import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -42,6 +43,13 @@ const REPLY = 4;
 
 /** Discord channel type for a guild voice channel. */
 const GUILD_VOICE = 2;
+
+/**
+ * Upper bound when scanning a finished season. The NFL plays 18 weeks; this
+ * only caps the loop for a season with nothing left unscored, so openWeek
+ * returns null and there is no natural stopping point to read from the data.
+ */
+const MAX_WEEKS = 22;
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -193,24 +201,17 @@ export async function runWeekly(env, api, deps = {}) {
 
   // Score every week of the season, not just this one: the posted table is
   // the season standings, and recomputing from stored rows is what makes a
-  // second run of this job produce identical numbers.
-  const rows = [];
-  let seasonWeeks = 0;
+  // second run of this job produce identical numbers. This week's results come
+  // from memory because they are not written down until the posts succeed.
+  const weeks = [];
   for (let w = 1; w <= week; w += 1) {
-    const weekGames = w === week ? settled : await getGames_(env.DB, season, w);
-    if (weekGames.length === 0) continue;
-    seasonWeeks += 1;
-    const weekPicks = await allPicks(env.DB, season, w);
-    const byUser = new Map();
-    for (const p of weekPicks) {
-      if (!byUser.has(p.userId)) byUser.set(p.userId, []);
-      byUser.get(p.userId).push(p);
-    }
-    for (const [userId, theirs] of byUser) {
-      const { points, correct } = scoreWeek({ games: weekGames, picks: theirs });
-      rows.push({ userId, points, correct, week: w });
-    }
+    weeks.push({
+      week: w,
+      games: w === week ? settled : await getGames_(env.DB, season, w),
+      picks: await allPicks(env.DB, season, w),
+    });
   }
+  const { rows, weeksPlayed: seasonWeeks } = scoreSeason(weeks);
 
   // Hand-awarded points join here rather than in buildStandings, so a
   // tournament win never counts as a week of pick'em entered.
@@ -438,6 +439,40 @@ export default {
       const token = await signPickToken({ userId, season, week, exp }, env.PICKS_SECRET);
       const link = `${url.origin}/picks?t=${token}`;
       return json({ type: REPLY, data: { content: `Your Week ${week} picks: ${link}`, flags: 64 } });
+    }
+
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'leaderboard') {
+      const season = Number(env.SEASON);
+
+      // Only weeks that have actually been scored count. openWeek is the first
+      // week with an unfinished game, so everything below it is settled — and
+      // showing a half-finished week here would contradict the whole all-or-
+      // nothing rule the weekly job enforces.
+      const open = await openWeek(env.DB, season);
+      const through = open ? open - 1 : MAX_WEEKS;
+
+      const weeks = [];
+      for (let w = 1; w <= through; w += 1) {
+        const games = await getGames(env.DB, season, w);
+        if (games.length === 0) continue;
+        weeks.push({ week: w, games, picks: await allPicks_(env.DB, season, w) });
+      }
+
+      const { rows, weeksPlayed } = scoreSeason(weeks);
+      const table = mergeAwards(buildStandings(rows), await dbSeasonAwards(env.DB, season));
+
+      return json({
+        type: REPLY,
+        data: {
+          content: standingsMessage({
+            table,
+            weeksPlayed,
+            leaderboardChannelId: env.LEADERBOARD_CHANNEL_ID,
+          }),
+          // Names render, nobody gets pinged for someone else checking the board.
+          allowed_mentions: { parse: [] },
+        },
+      });
     }
 
     if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'award') {

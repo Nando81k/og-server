@@ -1,4 +1,4 @@
-import { scoreWeek, buildStandings, mergeAwards } from './scoring.mjs';
+import { scoreWeek, buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -86,6 +86,42 @@ check('survives both being empty', mergeAwards([], []).length === 0);
 // Merging must not edit the rows buildStandings returned.
 check('the original standings are not mutated',
   picks.find((r) => r.userId === 'b').points === 6);
+
+console.log('\n--- scoring a whole season ---');
+// Shared by the weekly job and /leaderboard so the two can never disagree
+// about someone's total.
+const won = (id, winner) => ({ id, winner, completed: true, voided: false });
+const pick = (userId, game_id, team, confidence) => ({ userId, game_id, team, confidence });
+
+const season = scoreSeason([
+  { week: 1, games: [won('a', 'KC')], picks: [pick('u1', 'a', 'KC', 1), pick('u2', 'a', 'BAL', 1)] },
+  { week: 2, games: [won('b', 'SF')], picks: [pick('u1', 'b', 'SF', 2)] },
+]);
+check('every week with games counts as played', season.weeksPlayed === 2);
+check('a row per person per week', season.rows.length === 3);
+check('a correct pick scores its confidence',
+  season.rows.find((r) => r.userId === 'u1' && r.week === 2).points === 2);
+check('a wrong pick scores nothing',
+  season.rows.find((r) => r.userId === 'u2').points === 0);
+
+// A season bootstrapped at week 3 has earlier weeks that never existed, and
+// counting them would make "entered every week" unreachable for everyone.
+const sparse = scoreSeason([
+  { week: 1, games: [], picks: [] },
+  { week: 2, games: [won('c', 'KC')], picks: [pick('u1', 'c', 'KC', 1)] },
+]);
+check('an empty week is not counted as played', sparse.weeksPlayed === 1);
+check('an empty week contributes no rows', sparse.rows.length === 1);
+
+check('a week with games but no picks still counts as played',
+  scoreSeason([{ week: 1, games: [won('d', 'KC')], picks: [] }]).weeksPlayed === 1);
+check('missing picks do not throw',
+  scoreSeason([{ week: 1, games: [won('d', 'KC')] }]).rows.length === 0);
+check('an empty season is empty',
+  scoreSeason([]).weeksPlayed === 0 && scoreSeason([]).rows.length === 0);
+check('no argument is survivable', scoreSeason().weeksPlayed === 0);
+check('it feeds buildStandings directly',
+  buildStandings(season.rows).find((r) => r.userId === 'u1').points === 3);
 
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

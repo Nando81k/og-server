@@ -51,3 +51,39 @@ export function mergeAwards(standings, awards) {
     (a, b) => b.points - a.points || b.correct - a.correct || (a.userId < b.userId ? -1 : 1)
   );
 }
+
+/**
+ * Score a whole season from stored weeks.
+ *
+ * Takes the data rather than fetching it, so the weekly job can pass this
+ * week's results straight from memory — they are not written down until after
+ * the posts succeed — while /leaderboard passes what the database holds. One
+ * definition of the standings, two callers, no chance of them disagreeing
+ * about what someone's total is.
+ *
+ * A week with no games is skipped rather than counted as played. That count is
+ * what "entered every week" is measured against, and a season bootstrapped
+ * mid-way has earlier weeks that never existed.
+ */
+export function scoreSeason(weeks) {
+  const rows = [];
+  let weeksPlayed = 0;
+
+  for (const { week, games, picks } of weeks ?? []) {
+    if (!games || games.length === 0) continue;
+    weeksPlayed += 1;
+
+    const byUser = new Map();
+    for (const p of picks ?? []) {
+      if (!byUser.has(p.userId)) byUser.set(p.userId, []);
+      byUser.get(p.userId).push(p);
+    }
+
+    for (const [userId, theirs] of byUser) {
+      const { points, correct } = scoreWeek({ games, picks: theirs });
+      rows.push({ userId, points, correct, week });
+    }
+  }
+
+  return { rows, weeksPlayed };
+}

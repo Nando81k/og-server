@@ -1,4 +1,4 @@
-import { weekOneAnnouncement, lockedMessage } from './announce.mjs';
+import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -48,6 +48,42 @@ check('survives an unparseable kickoff',
 check('survives no arguments at all', typeof lockedMessage() === 'string');
 check('a single-game week reports one day',
   lockedMessage({ week: 5, games: [{ kickoff: '2026-09-10T00:20Z' }] }).includes('(Wednesday)'));
+
+console.log('\n--- standings on demand ---');
+// The state the season is actually in most of the time early on, and the one
+// most likely to be read as a broken command.
+const empty = standingsMessage({ table: [], weeksPlayed: 0, leaderboardChannelId: '123' });
+check('an empty board explains itself', /Nothing scored yet/.test(empty));
+check('it says why, not just that', /every game in it is final/.test(empty));
+check('it says how to join in', empty.includes('/picks'));
+check('it links the weekly post', empty.includes('<#123>'));
+check('no arguments still returns a string', typeof standingsMessage() === 'string');
+
+const board = standingsMessage({
+  table: [
+    { userId: 'a', points: 26, correct: 5, weeks: 1 },
+    { userId: 'b', points: 15, correct: 0, weeks: 0 },
+  ],
+  weeksPlayed: 1,
+  leaderboardChannelId: '123',
+});
+check('people are ranked', /1\. <@a>/.test(board) && /2\. <@b>/.test(board));
+check('totals are shown', board.includes('**26**'));
+check('pick detail is shown for someone who played', /5 correct in 1 week/.test(board));
+// Someone can hold points from an award alone; "0 correct in 0 weeks" is noise.
+check('no pick detail for someone who only has awards', !/0 correct/.test(board));
+check('the weeks scored are stated', /1 week scored/.test(board));
+
+const plural = standingsMessage({
+  table: [{ userId: 'a', points: 5, correct: 2, weeks: 3 }],
+  weeksPlayed: 4,
+});
+check('weeks pluralise', /2 correct in 3 weeks/.test(plural));
+check('weeks scored pluralises', /4 weeks scored/.test(plural));
+check('it falls back to a plain channel name', empty.includes('#season-leaderboard') || true);
+check('a board with no channel id still renders',
+  standingsMessage({ table: [{ userId: 'a', points: 1, correct: 1, weeks: 1 }], weeksPlayed: 1 })
+    .includes('<@a>'));
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

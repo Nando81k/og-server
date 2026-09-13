@@ -44,7 +44,7 @@ check('every value fits Discord\'s 100 character limit',
 
 console.log('\n--- the commands Discord is told about ---');
 check('registers exactly the commands we mean to',
-  COMMANDS.map((c) => c.name).sort().join(',') === 'award,lfg,picks');
+  COMMANDS.map((c) => c.name).sort().join(',') === 'award,leaderboard,lfg,picks');
 check('every command has a name and description',
   COMMANDS.every((c) => c.name && c.description));
 check('no duplicate command names',
@@ -75,6 +75,13 @@ check('it takes a user, a number and a reason',
 check('all three are required', award.options.every((o) => o.required === true));
 check('the reason is free text, so it can say what it was for',
   award.options.find((o) => o.name === 'reason').type === 3);
+
+console.log('\n--- /leaderboard is open to everyone ---');
+const board = COMMANDS.find((c) => c.name === 'leaderboard');
+check('/leaderboard is registered', Boolean(board));
+// Standings nobody can look at are half a competition — this one is not gated.
+check('it is not permission gated', board.default_member_permissions === undefined);
+check('it takes no options', (board.options ?? []).length === 0);
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nALL PASSED');
 process.exit(fails.length ? 1 : 0);

@@ -16,7 +16,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 
@@ -62,6 +62,25 @@ if (missing.length) {
 
 const rows = (sql.match(/INSERT INTO/gi) ?? []).length;
 const rel = path.relative(root, out);
+
+// A backup identical to the last one is not a second backup, it is the same
+// backup twice. Keeping it would fill a season's directory with duplicates and
+// make the useful ones harder to find — so say nothing changed and drop it.
+const previous = (await readdir(dir))
+  .filter((n) => n.endsWith('.sql') && n !== path.basename(out))
+  .sort()
+  .pop();
+
+if (previous) {
+  const old = await readFile(path.join(dir, previous), 'utf8');
+  if (old === sql) {
+    await rm(out);
+    console.log(`\nNothing has changed since ${previous}.`);
+    console.log('No new backup kept — that file is still current.');
+    process.exit(0);
+  }
+}
+
 console.log(`\n${rel}`);
 console.log(`${TABLES.length} tables, ${rows} rows, ${(size / 1024).toFixed(1)} KB`);
 console.log('\nCommit it to keep a copy off this machine:');

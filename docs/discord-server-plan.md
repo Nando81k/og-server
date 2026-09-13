@@ -80,7 +80,7 @@ before the server went public. Full stop. Everyone else earns `Veteran`.
 | **Carl-bot** | Autorole, reaction roles, starboard (⭐×3 → `⭐┃highlights`), logging, automod | carl.gg dashboard |
 | **Sesh** | Event creation and RSVPs | `📍┃irl-plans` |
 | **Karuta** | Collectible card game | Confined to `🎴┃gacha` — see §4 |
-| **Jockie Music** ×4 | Music, four linked accounts | All voice rooms — on trial, see below |
+| **Chip** ×3 | Music, slash commands, three instances | All voice rooms |
 
 **OG Bot is an HTTP-interaction bot, not a gateway bot.** Discord calls the
 Worker's URL with a signed request when someone runs a command. It shows as
@@ -109,31 +109,39 @@ without notice, so nothing should depend on it.
 occupies one voice channel at a time. With eight voice rooms, a single-instance
 bot is whoever-asked-first's, and everybody else waits.
 
-**[Jockie](https://www.jockiemusic.com/) is installed** — all four accounts
-(`Jockie Music`, `(1)`, `(2)`, `(3)`), prefix `m!`. Verified working: it joins a
-voice room and plays on `m!play`. What was *not* verified is the four-rooms-at-
-once behaviour, because testing it needs two voice channels at once and
-Discord drops a browser session out of voice the moment the same account
-connects from the desktop app.
+**[Chip](https://chipbot.gg/) ×3 is what's installed** — `Chip`, `Chip 2`,
+`Chip 3`. Slash commands, so `/play <song>` for a quick play and
+`/search <song>` when the title is ambiguous: that one returns a clickable list
+with each result's artist and duration, which is how you tell Wiz Khalifa's
+"See You Again" from Miley Cyrus's. Also filters, `/247`, DJ roles, lyrics and
+queue tools. Discord lists it as a verified app in 1.9 million servers.
 
-**Its limitation is that it has no slash commands.** Confirmed by typing
-`/play` in the server — only Carl-bot's commands appear — and by its own
-published list of 227 commands, which is entirely prefix-based and includes
-commands for managing prefixes and autocorrecting mistyped ones. The cost is
-that picking a specific track takes two messages: `m!search <song>` returns a
-numbered list, `m!select <n>` takes one. Plain `m!play` grabs the top hit,
-which is often a remix or a sped-up edit.
+**Jockie was installed first and has been removed.** It worked, but it is
+prefix-only (`m!`) — no slash commands, confirmed by typing `/play` in the
+server and by its own 227-command list. Picking a specific track took two
+messages instead of one click. Running both meant seven music bots answering to
+two different prefixes, which is how someone types the wrong one and concludes
+music is broken.
 
-**[Chip](https://chipbot.gg/) is the evaluated alternative** and is better on
-exactly that point. Its [documented commands](https://chipbot.gg/commands) are
-slash commands, and `/search <song>` returns a dropdown to click rather than a
-number to type. It ships four invites too — `Chip`, `Chip 2`, `Chip 3` and
-`Chip Beta` — so three stable instances against Jockie's four. Note that
-neither bot does type-ahead suggestion of song names while typing; both
-require sending a search first.
+What went with it: Jockie's **Guess the Song** trivia game (`m!gts`) and saved
+collections, neither of which Chip has. If the trivia game is ever wanted for
+🕹️┃game-of-the-month, re-adding one Jockie takes two minutes.
 
-Not yet decided. Running both means eight music bots, so whichever wins, the
-other should be removed.
+**Neither bot does type-ahead suggestion of song names while typing.** Tested
+directly on both. Discord supports it; the bot has to implement it and neither
+does. `/search` and its clickable result list is the substitute, and it is the
+reason to prefer Chip.
+
+**Invite links request Administrator. Strip it.** Chip's official invite carries
+`permissions=274914692360`, which includes Administrator — enough to read
+🛡️ MOD and 🔒 OG and override every overwrite in §4, for a bot that plays songs.
+All three Chips were invited with `274914692352` instead, the same value minus
+that one bit, and Discord's confirmation screen then listed exactly nine
+permissions: View Channels, Send Messages, Send Messages in Threads, Embed
+Links, Read Message History, Connect, Speak, Use Voice Activity, Priority
+Speaker. Verified working on that set — playback included. Expect to do this for
+any bot: the elevated request is laziness on the developer's part, not a
+requirement.
 
 **Durable alternatives for `🔊 Watch Party`:** Discord's own Watch Together
 activity and Spotify's Listen Along. No cease-and-desist can take those away,

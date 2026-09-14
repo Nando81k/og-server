@@ -161,6 +161,7 @@ That's the whole game. Everything below is optional.
 
 **Your first five minutes**
 
+— \`k!verify\` once, before anything else — Karuta asks everyone to do this before their first drop, and sends you a quick puzzle to prove you're a person
 — \`k!drop\` puts three cards up for grabs (30 minute cooldown)
 — Tap a number on anyone's drop to claim a card, not just your own
 — \`k!collection\` shows what you own

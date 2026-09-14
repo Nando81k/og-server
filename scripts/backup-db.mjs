@@ -23,8 +23,17 @@ import path from 'node:path';
 const run = promisify(execFile);
 
 const DB = 'og-pickem';
-/** Every table the worker relies on. A dump missing one is not a backup. */
-const TABLES = ['games', 'picks', 'teams', 'meta', 'points'];
+/**
+ * Every table the worker relies on. A dump missing one is not a backup.
+ *
+ * Add to this whenever schema.sql gains a table. The check only catches what
+ * it is told to look for, so a table added here and forgotten there means the
+ * backup silently stops covering it — which nobody discovers until a restore.
+ */
+const TABLES = [
+  'games', 'picks', 'teams', 'meta', 'points',
+  'tournaments', 'tournament_entrants',
+];
 
 const root = path.resolve(import.meta.dirname, '..');
 const dir = path.join(root, 'backups');

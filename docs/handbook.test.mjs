@@ -27,7 +27,7 @@ check(`all ${channels.length} channels appear${missing.length ? ` (missing: ${mi
   missing.length === 0);
 
 // The page says the number out loud, so the number has to be right.
-const claimed = { 43: 'Forty-three' }[channels.length];
+const claimed = { 43: 'Forty-three', 44: 'Forty-four' }[channels.length];
 check('the handbook knows how many channels there are',
   Boolean(claimed) && html.includes(claimed));
 

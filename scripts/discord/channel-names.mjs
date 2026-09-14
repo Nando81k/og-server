@@ -55,6 +55,7 @@ export const CHANNEL_EMOJI = {
   recommendations: '🧭',
   gacha: '🎴',
   'Watch Party': '🔊',
+  'Game Watch': '📺',
   'season-leaderboard': '📊',
   pickem: '📝',
   brackets: '🗂️',
@@ -135,7 +136,18 @@ export const SERVER_PLAN = [
   },
   {
     category: 'SEASON + TOURNAMENTS',
-    channels: ['season-leaderboard', 'pickem', 'brackets'],
+    channels: [
+      'season-leaderboard',
+      'pickem',
+      'brackets',
+      // Watching the game together: everyone on their own broadcast, talking.
+      // Deliberately not a screen share — sports feeds run up to a minute
+      // apart, so whoever is ahead reacts before anyone else has seen it, and
+      // most sports apps black-screen under DRM anyway. It sits here rather
+      // than with #sports-talk because Sunday football and the pick'em are the
+      // same activity.
+      { name: 'Game Watch', type: VOICE },
+    ],
   },
   {
     category: 'FANTASY',

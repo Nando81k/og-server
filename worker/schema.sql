@@ -61,3 +61,37 @@ CREATE TABLE IF NOT EXISTS points (
   awarded_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS points_season ON points (season);
+
+-- Tournaments, stored as the draw plus the results — never as the bracket.
+--
+-- `seeds` is the entrant order fixed at the moment the bracket is drawn, and
+-- `results` is an ordered list of {match, winner}. The bracket engine is pure
+-- and createBracket is deterministic, so replaying those two rebuilds the
+-- exact same bracket every time. Storing it this way is what makes a mod undo
+-- correct: drop the last result and replay, instead of trying to reverse a
+-- cascade back through the losers bracket and the grand final by hand.
+--
+-- status: 'signup' | 'running' | 'done' | 'cancelled'
+CREATE TABLE IF NOT EXISTS tournaments (
+  id         TEXT PRIMARY KEY,
+  season     INTEGER NOT NULL,
+  name       TEXT    NOT NULL,
+  status     TEXT    NOT NULL,
+  seeds      TEXT,
+  results    TEXT    NOT NULL DEFAULT '[]',
+  channel_id TEXT,
+  created_by TEXT    NOT NULL,
+  created_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tournaments_open ON tournaments (season, status);
+
+-- Display names are captured at sign-up rather than fetched when needed.
+-- Autocomplete gets about three seconds for the whole interaction, and
+-- resolving sixteen matches would mean up to thirty-two member lookups.
+CREATE TABLE IF NOT EXISTS tournament_entrants (
+  tournament_id TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  display_name  TEXT NOT NULL,
+  joined_at     TEXT NOT NULL,
+  PRIMARY KEY (tournament_id, user_id)
+);

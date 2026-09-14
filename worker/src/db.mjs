@@ -170,3 +170,129 @@ export async function seasonAwards(db, season) {
     .all();
   return (results ?? []).map((r) => ({ userId: r.user_id, points: Number(r.points) || 0 }));
 }
+
+// --- tournaments -----------------------------------------------------------
+
+const parse = (text, fallback) => {
+  try {
+    const v = JSON.parse(text);
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const shape = (r) => (r ? {
+  id: r.id,
+  season: r.season,
+  name: r.name,
+  status: r.status,
+  seeds: r.seeds ? parse(r.seeds, null) : null,
+  results: parse(r.results, []),
+  channelId: r.channel_id ?? null,
+  createdBy: r.created_by,
+  createdAt: r.created_at,
+  // The exact stored text the next write has to match. See recordResult.
+  resultsRaw: r.results,
+} : null);
+
+/**
+ * The tournament the bracket commands act on, or null.
+ *
+ * There is deliberately no id option on any of them. One tournament runs at a
+ * time and `/bracket create` refuses while another is still open, which keeps
+ * every other subcommand down to almost no arguments. A group this size runs
+ * one bracket a night, and an id nobody can remember is a worse tax than the
+ * restriction.
+ */
+export async function activeTournament(db, season) {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM tournaments
+        WHERE season = ? AND status IN ('signup', 'running')
+        ORDER BY created_at DESC LIMIT 1`
+    )
+    .bind(season)
+    .all();
+  return shape(results?.[0]);
+}
+
+export async function getTournament(db, id) {
+  const { results } = await db.prepare(`SELECT * FROM tournaments WHERE id = ?`).bind(id).all();
+  return shape(results?.[0]);
+}
+
+export async function createTournament(db, { id, season, name, channelId, createdBy, now }) {
+  await db
+    .prepare(
+      `INSERT INTO tournaments (id, season, name, status, results, channel_id, created_by, created_at)
+       VALUES (?, ?, ?, 'signup', '[]', ?, ?, ?)`
+    )
+    .bind(id, season, name, channelId ?? null, createdBy, now ?? new Date().toISOString())
+    .run();
+  return id;
+}
+
+export async function tournamentEntrants(db, id) {
+  const { results } = await db
+    .prepare(
+      `SELECT user_id, display_name FROM tournament_entrants
+        WHERE tournament_id = ? ORDER BY joined_at, user_id`
+    )
+    .bind(id)
+    .all();
+  return (results ?? []).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
+}
+
+/** Idempotent: joining twice is a no-op, not an error and not a second seat. */
+export async function joinTournament(db, id, { userId, displayName, now }) {
+  await db
+    .prepare(
+      `INSERT INTO tournament_entrants (tournament_id, user_id, display_name, joined_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tournament_id, user_id) DO UPDATE SET display_name = excluded.display_name`
+    )
+    .bind(id, userId, displayName, now ?? new Date().toISOString())
+    .run();
+}
+
+export async function leaveTournament(db, id, userId) {
+  const res = await db
+    .prepare(`DELETE FROM tournament_entrants WHERE tournament_id = ? AND user_id = ?`)
+    .bind(id, userId)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** Fix the draw and open the bracket. Refuses if it has already been drawn. */
+export async function startTournament(db, id, seeds) {
+  const res = await db
+    .prepare(
+      `UPDATE tournaments SET status = 'running', seeds = ?
+        WHERE id = ? AND status = 'signup'`
+    )
+    .bind(JSON.stringify(seeds), id)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * Append a result, but only if nobody else has appended one since it was read.
+ *
+ * Two people finishing sets at the same moment both read the same results
+ * list, and a plain overwrite would let the second write erase the first —
+ * losing a reported match, which stalls everyone behind it and looks exactly
+ * like somebody forgetting to report. Comparing against the previous stored
+ * text makes that a visible retry instead of silent data loss.
+ */
+export async function recordResult(db, id, previousRaw, results) {
+  const res = await db
+    .prepare(`UPDATE tournaments SET results = ? WHERE id = ? AND results = ?`)
+    .bind(JSON.stringify(results), id, previousRaw)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+export async function closeTournament(db, id, status) {
+  await db.prepare(`UPDATE tournaments SET status = ? WHERE id = ?`).bind(status, id).run();
+}

@@ -34,9 +34,10 @@
  *   - Assigning the OG role to your crew — never automate that one.
  */
 
-import { askVisible, askHidden } from './prompt.mjs';
+import { askHidden } from './prompt.mjs';
 import { BOT_SCOPES } from './bot-scopes.mjs';
 import { normalizeChannelName } from '../../shared/lib.mjs';
+import { GUILD_ID as DEFAULT_GUILD } from '../../shared/ids.mjs';
 import {
   VIEW_CHANNEL as VIEW_CHANNEL_BIT,
   SEND_MESSAGES as SEND_MESSAGES_BIT,
@@ -58,12 +59,7 @@ import {
 // keyboard is still there and prompts go to stderr.
 const interactive = Boolean(process.stdin.isTTY);
 
-let GUILD_ID = process.env.GUILD_ID;
-if (!GUILD_ID && interactive) {
-  GUILD_ID = await askVisible(
-    'Server ID (Developer Mode on, right-click the server icon -> Copy Server ID): '
-  );
-}
+const GUILD_ID = process.env.GUILD_ID || DEFAULT_GUILD;
 
 let TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN && interactive) {

@@ -7,6 +7,13 @@ the core.
 This document describes the server **as it actually is**. Where an earlier plan
 was abandoned, the reason is recorded, because the reasons are the useful part.
 
+It is the *build* document — the reasoning, the dead ends, the permission
+arithmetic. The member-facing version is `docs/handbook.html`: every channel,
+role, bot, command and rule, with none of the why. `docs/handbook.test.mjs`
+asserts the handbook lists every channel the seeder creates, every command that
+is registered, and the same placement points the code pays out, so the two
+cannot drift apart quietly.
+
 ---
 
 ## 1. Structure
@@ -260,6 +267,62 @@ saw it until Tuesday. It counts only weeks below the open one, so a total never
 drifts during a Sunday afternoon, and it shares one `scoreSeason` with the
 weekly job so the two cannot disagree about what someone has scored.
 
+### Tournaments
+
+`/bracket` runs double elimination inside the bot, 3 to 32 entrants. A mod
+opens sign-ups with `create`, people `join`, a mod draws it with `start`, and
+either player in a set reports it with `report`. When the grand final lands,
+placings are written straight into the `points` ledger and the tournament
+closes.
+
+Building it rather than using Challonge came down to one thing: no third-party
+bracket site will ever write into this database, so every placement would have
+been retyped by hand through `/award`, and the ones nobody remembered to type
+would simply never have counted.
+
+**The bracket is never stored.** The row holds the draw — the entrant order
+fixed at `start` — and an ordered list of `{match, winner}`. The engine is pure
+and `createBracket` is deterministic, so replaying those two rebuilds the exact
+same bracket on every command. That is what makes `undo` correct: it drops the
+last result and replays, instead of trying to reverse a cascade back through
+the losers bracket and the grand final. It also means two commands can never
+disagree about the state, because neither of them holds one.
+
+**The draw is random, not seeded by standings.** Seeding by the leaderboard is
+what a real tournament does, and it also means whoever is having a good month
+gets the easier half every time — which in a group this size reads as rigged
+long before it reads as earned.
+
+**Byes are resolved at creation, not left as matches nobody can play.** A
+bracket that is not a power of two pads out with them, and the first version
+left the losers-bracket slot behind a bye empty forever, stalling every single
+non-power-of-two size. The property test plays out every size from 3 to 32 and
+asserts each one finishes and places everyone; it is what caught it, at 26
+sizes at once.
+
+**Reports are a compare-and-swap, not an overwrite.** Two people finishing sets
+in the same moment both read the same result list, and a plain write would let
+the second erase the first — losing a reported set, which stalls everyone
+behind it and looks exactly like somebody forgetting to report. The write is
+conditional on what was read, so the loser of the race is told to run it again.
+
+**Payout is guarded by a done-marker**, the same way the weekly pick'em posts
+are, because the ledger is append-only and cannot tell a duplicate placing from
+a real second award.
+
+`/bracket` is not permission gated at the Discord level, unlike `/award`.
+Discord can only hide a whole command and never one subcommand, so gating it
+would have hidden `join`, `view` and `report` from everyone who is not a mod.
+`create`, `start`, `undo` and `cancel` check for Manage Messages in the handler
+instead.
+
+Placings pay 50 / 30 / 20 / 12, then 6 for the rest of the top 8 and 2 for
+entering. A flat table rather than one that scales with the size of the field:
+this server runs 8-to-16 player brackets, and arithmetic nobody can do in their
+head defeats the point of publishing what people are playing for. The two
+points for turning up are there because an empty bracket is the actual failure
+mode, not an unfair one.
+
 ---
 
 ## 7. What is not automated
@@ -288,8 +351,22 @@ weekly job so the two cannot disagree about what someone has scored.
 ## 9. Running things
 
 Every script prompts for the bot token, hidden as you paste it, and never puts
-it in shell history. `GUILD_ID` and `BOT_TOKEN` in the environment skip the
-prompts.
+it in shell history. That prompt is the only one left: the server and
+application ids are public, so they live in `shared/ids.mjs` and the scripts
+read them from there. `GUILD_ID`, `APPLICATION_ID` and `BOT_TOKEN` in the
+environment override or skip.
+
+Retyping an eighteen digit id before every registration is how commands end up
+registered against the wrong application, and that failure is silent — the API
+returns 200 and the commands appear in a server nobody is looking at. A test
+asserts the guild id in `shared/ids.mjs` matches the one in `wrangler.toml`,
+because the Worker reads its own copy at runtime and two copies of one number
+is exactly the thing that drifts.
+
+| | |
+|---|---|
+| Application ID (OG Bot) | `1546707619857702962` |
+| Server ID (The OGs Server) | `1546707076460445787` |
 
 | Command | Does | When |
 |---|---|---|

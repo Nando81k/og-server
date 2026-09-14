@@ -21,8 +21,9 @@
  */
 
 import { readdir, readFile, stat } from 'node:fs/promises';
+import { GUILD_ID as DEFAULT_GUILD } from '../../shared/ids.mjs';
 import path from 'node:path';
-import { askVisible, askHidden } from './prompt.mjs';
+import { askHidden } from './prompt.mjs';
 import { emojiName, mimeFor, rejectReason, isAnimated, EXTENSIONS } from './emoji.mjs';
 
 const DRY_RUN = process.env.DRY_RUN === '1';
@@ -77,8 +78,7 @@ if (usable.length === 0) {
   process.exit(1);
 }
 
-let GUILD_ID = process.env.GUILD_ID;
-if (!GUILD_ID && interactive) GUILD_ID = await askVisible('Server ID: ');
+const GUILD_ID = process.env.GUILD_ID || DEFAULT_GUILD;
 
 let TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN && interactive) {

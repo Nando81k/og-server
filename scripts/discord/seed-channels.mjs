@@ -21,8 +21,9 @@
  * environment to run it unattended.
  */
 
-import { askVisible, askHidden } from './prompt.mjs';
+import { askHidden } from './prompt.mjs';
 import { normalizeChannelName } from '../../shared/lib.mjs';
+import { GUILD_ID as DEFAULT_GUILD } from '../../shared/ids.mjs';
 import {
   GUIDES,
   FORUM_GUIDELINES,
@@ -36,10 +37,7 @@ import {
 const DRY_RUN = process.env.DRY_RUN === '1';
 const interactive = Boolean(process.stdin.isTTY);
 
-let GUILD_ID = process.env.GUILD_ID;
-if (!GUILD_ID && interactive) {
-  GUILD_ID = await askVisible('Server ID: ');
-}
+const GUILD_ID = process.env.GUILD_ID || DEFAULT_GUILD;
 
 let TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN && interactive) {
@@ -48,8 +46,8 @@ if (!TOKEN && interactive) {
 
 if (!TOKEN || !GUILD_ID) {
   console.error(
-    'Need a bot token and a server ID. Run this in a terminal to be prompted for both,\n' +
-      'or set BOT_TOKEN and GUILD_ID in the environment for a non-interactive run.'
+    'Need a bot token. Run this in a terminal to be prompted for it,\n' +
+      'or set BOT_TOKEN in the environment for a non-interactive run.'
   );
   process.exit(1);
 }

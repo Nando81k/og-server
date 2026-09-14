@@ -9,6 +9,27 @@ owner's own account, which is why `welcome-rules` is in `ALREADY_PINNED`.
 Kept here so it is version-controlled and reviewable like everything else.
 To change it: edit the pinned message in Discord and paste the text below.
 
+**`welcome-rules.posted.txt` beside this file is the exact text that is live**,
+with real `<#id>` channel mentions instead of the plain names used here. Paste
+that one, not this one — plain `#channel-name` text does not become a link.
+
+The ids it uses, all verified by opening each channel:
+
+| channel | id |
+|---|---|
+| `#2k` | `1546736653140365473` |
+| `#madden` | `1546736658387443843` |
+| `#highlights` | `1546736632378433566` |
+| `#smoke-lounge` | `1546736693703344159` |
+| `#general-chat` | `1546736621746135081` |
+| `#irl-plans` | `1546736639710072935` |
+| `#bodega-tier-list` | `1546736642197426226` |
+
+Worth writing down: a wrong id does not error, it renders as a grey
+`#unknown` pill in the live message. The only way to know an id is right is to
+open `discord.com/channels/<guild>/<id>` and see which channel comes up — a
+bad id silently redirects somewhere else instead of failing.
+
 ---
 
 you found the spot

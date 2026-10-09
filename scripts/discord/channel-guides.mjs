@@ -216,9 +216,11 @@ Everybody who enters scores. They land in {#season-leaderboard} on their own.
 **Game of the month runs here too.** Nominate a game, react to vote, and the winner is what everybody's playing next month. Nominations open the last week of the month, one each, and the winner gets a pinned thread.`,
   standings: `**both leagues, one place**
 
-Nothing here yet. This fills in once the Sleeper and ESPN leagues actually exist.
+The NBA league is wired in. OG Bot posts every add, drop and trade here a few minutes after it happens on ESPN, so nobody has to refresh the league page to find out who got robbed.
 
-The plan: one command pulls both leagues into a single board, and a weekly recap posts here with scores, the biggest blowout, and the bench decision somebody's going to be hearing about all week.`,
+Type \`/fantasy standings\` for the table, \`/fantasy scores\` for this week's matchups and \`/fantasy recent\` for the latest moves.
+
+The NFL league joins once it exists. Proposed trades still go to {#trade-court} first — the bot only reports what ESPN has already processed.`,
 
   'smoke-lounge': `**18+ only**
 

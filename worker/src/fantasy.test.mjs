@@ -181,7 +181,7 @@ check('replies are cut to Discord\'s 2000 character limit', out.content.length <
 console.log('\n--- the command definition ---');
 const def = COMMANDS.find((c) => c.name === 'fantasy');
 check('/fantasy is registered', Boolean(def));
-check('it offers standings, scores, recent and link', def.options.map((o) => o.name).join() === 'standings,scores,recent,link');
+check('it offers standings, scores, recent, debug and link', def.options.map((o) => o.name).join() === 'standings,scores,recent,debug,link');
 check('every option is a subcommand', def.options.every((o) => o.type === 1));
 check('it is not gated: nothing here writes', def.default_member_permissions === undefined);
 

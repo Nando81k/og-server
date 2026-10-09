@@ -40,7 +40,7 @@ import {
   openMatches as bracketOpenMatches, isComplete as bracketIsComplete,
   MIN_ENTRANTS, MAX_ENTRANTS,
 } from './tournament.mjs';
-import { BRACKET_MOD_ONLY, TRADE_MOD_ONLY } from '../../shared/commands.mjs';
+import { BRACKET_MOD_ONLY, TRADE_MOD_ONLY, FANTASY_MOD_ONLY } from '../../shared/commands.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
@@ -62,6 +62,8 @@ import {
   fetchRosters as fantasyFetchRosters,
   fetchPlayerCards as fantasyFetchPlayerCards,
   fetchBio as fantasyFetchBio,
+  diagnose as fantasyDiagnose,
+  diagnosticMessage,
   parseStandings,
   parseMatchups,
   standingsMessage as fantasyStandingsMessage,
@@ -600,10 +602,17 @@ export async function handleFantasy(interaction, env, deps = {}) {
     fetchLeague = fantasyFetchLeague,
     fetchActivity = fantasyFetchActivity,
     fetchRosters = fantasyFetchRosters,
+    diagnose = fantasyDiagnose,
   } = deps;
   const cfg = fantasyConfig(env);
   if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
   const { name: sub, args } = subcommandOf(interaction);
+
+  // Discord can only hide a whole command, never one subcommand, so this is
+  // visible to everyone and refused here. See shared/commands.mjs.
+  if (FANTASY_MOD_ONLY.includes(sub) && !hasManageMessages(interaction.member)) {
+    return onlyYou('Only mods can do that.');
+  }
 
   try {
     let content;
@@ -613,6 +622,15 @@ export async function handleFantasy(interaction, env, deps = {}) {
       content = fantasyScoresMessage(parseMatchups(await fetchLeague(cfg)));
     } else if (sub === 'recent') {
       content = fantasyActivityMessage((await fetchActivity(cfg, { size: 10 })).slice(0, 10));
+    } else if (sub === 'debug') {
+      // Private to the mod, and made of field names and counts only. It exists
+      // so the parts of this bot built on guesses about ESPN can be checked
+      // against the real league in one command.
+      const rosters = await fetchRosters(cfg);
+      const first = rosters.teams.flatMap((t) => t.players)[0];
+      const id = args.player !== undefined ? Number(args.player) : first?.id;
+      if (!Number.isInteger(id)) return onlyYou('Pick a player from the list, or leave it empty.');
+      return onlyYou(diagnosticMessage(await diagnose(cfg, id)));
     } else if (sub === 'link') {
       // A claim, not a proof: nothing ties a Discord account to an ESPN one.
       // It is enough for a friend group, and a mod can reassign a wrong one.
@@ -1010,6 +1028,9 @@ export async function handleFantasyAutocomplete(interaction, env, deps = {}) {
   if (focused.name === 'team') {
     const mine = sub === 'propose' ? await getLink(env.DB, cfg.season, userId) : null;
     return choices(rosters.teams.filter((t) => !mine || t.id !== mine.teamId));
+  }
+  if (sub === 'debug') {
+    return choices(rosters.teams.flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name }))));
   }
   if (sub !== 'propose') return [];
 

@@ -203,6 +203,41 @@ guesses, and the bot now follows them:
 - **Not available:** per-season stats further back than last season came back
   empty, so a multi-season chart would need another source.
 
+## The /player card and /compare
+
+`/player` replies with a Discord embed rather than plain text: the colour bar
+is his health (green healthy, amber day-to-day, red out), with his headshot, a
+row of rank / ownership / owner in your league, a bio line, the per-game table,
+and an **area chart of his last 15 games** (points, with the average as a
+dashed line).
+
+- The per-game table is a code block of box-drawing characters with ruled
+  lines and right-aligned numbers, about 36 characters wide so it fits a phone.
+  Discord can't draw a real table, so this is the closest to a spreadsheet.
+
+- The chart is an image drawn by **QuickChart** (quickchart.io) from a URL this
+  bot builds. QuickChart sees only the per-game numbers and the chart styling,
+  never a token, cookie or anything about the server. If it is ever down the
+  card simply has no picture.
+- Before the season the games are last season's, and the chart is titled as
+  such ("last 15 games of 2025-26") rather than passed off as recent form.
+- The headshot comes from ESPN's image host by player id and is **not
+  verified**; if it is missing, Discord just shows no thumbnail.
+- The game-by-game entries are read as that game's totals under the same stat
+  ids as the averages (the debug run confirmed 15 come back with totals). How
+  ESPN orders them is not confirmed, so they are sorted by scoring period when
+  every game has one.
+
+**`/compare`** puts two to four players side by side. One column per player,
+one row per category the league scores, the best value in each row starred
+(ties both starred), a *Basis* row saying whether each column is this season, a
+projection or last season, and a *Leads* row counting the categories each leads
+(the league is decided by categories won). The chart overlays their recent
+games, latest games lined up at the right. Four players' numbers are close to
+the URL limit, so the chart steps down from 15 games to 10, 7 or 5 rather than
+overflow. If the columns are on different bases the footer says to read the
+leads loosely.
+
 ## Tests
 
 ```bash

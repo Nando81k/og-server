@@ -54,7 +54,8 @@ import {
   proposalMessage, closedMessage, resultAnnouncement, validateProposal, findCompletedTrades,
   parseExploreId, exploreMessage, exploreComponents,
 } from './trade.mjs';
-import { playerMessage } from './player.mjs';
+import { playerEmbed, compareEmbed, chartData } from './player.mjs';
+import { areaChartUrl } from './chart.mjs';
 import {
   fantasyConfig,
   fetchLeague as fantasyFetchLeague,
@@ -928,7 +929,7 @@ export async function handleTradeExplore(interaction, env, deps = {}) {
   };
 }
 
-/** /player <name>: a public card for one player on a team in this league. */
+/** /player <name>: a public card for any player, with a chart of recent form. */
 export async function handlePlayer(interaction, env, deps = {}) {
   const {
     fetchRosters = fantasyFetchRosters,
@@ -941,11 +942,59 @@ export async function handlePlayer(interaction, env, deps = {}) {
   if (!Number.isInteger(id)) return onlyYou('Pick a player from the list as you type.');
 
   try {
-    const [rosters, cards, bio] = await Promise.all([fetchRosters(cfg), fetchCards(cfg, [id]), fetchBio(id)]);
+    // Fifteen games, so there is something to draw; the trade panel asks for none.
+    const [rosters, cards, bio] = await Promise.all([
+      fetchRosters(cfg), fetchCards(cfg, [id], { games: 15 }), fetchBio(id),
+    ]);
     const card = cards.get(id);
     if (!card) return onlyYou('ESPN has no card for that player.');
     const owner = rosters.teams.find((t) => t.players.some((p) => p.id === id))?.name ?? null;
-    return say(playerMessage({ card, owner, bio, cats: categoriesFrom(rosters.categories) }).slice(0, MAX_MESSAGE));
+    const cats = categoriesFrom(rosters.categories);
+    const chart = chartData(card, cats, cfg.season);
+    return {
+      embeds: [playerEmbed({
+        card, owner, bio, cats,
+        chartUrl: chart ? areaChartUrl({ title: chart.title, values: chart.values }) : null,
+      })],
+      allowed_mentions: { parse: [] },
+    };
+  } catch (err) {
+    console.error(err);
+    return onlyYou(`Could not reach ESPN: ${err.message}`);
+  }
+}
+
+/** /compare: two to four players side by side, with a chart of their recent games. */
+export async function handleCompare(interaction, env, deps = {}) {
+  const { fetchRosters = fantasyFetchRosters, fetchCards = fantasyFetchPlayerCards } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
+
+  const opts = optionsOf(interaction);
+  const ids = ['player1', 'player2', 'player3', 'player4']
+    .map((k) => opts[k])
+    .filter((v) => v !== undefined && v !== '')
+    .map(Number);
+  if (ids.length < 2) return onlyYou('Pick at least two players to compare.');
+  if (ids.some((n) => !Number.isInteger(n))) return onlyYou('Pick the players from the list as you type.');
+  if (new Set(ids).size !== ids.length) return onlyYou('Pick different players: the same one is listed twice.');
+
+  try {
+    // One card request for all of them: a comparison costs no more ESPN calls
+    // than looking up one player.
+    const [rosters, cards] = await Promise.all([fetchRosters(cfg), fetchCards(cfg, ids, { games: 15 })]);
+    const missing = ids.filter((id) => !cards.has(id));
+    if (missing.length) return onlyYou(`ESPN has no card for player ${missing.join(', ')}.`);
+    const owners = new Map(rosters.teams.flatMap((t) => t.players.map((p) => [p.id, t.name])));
+    return {
+      embeds: [compareEmbed({
+        cards: ids.map((id) => cards.get(id)),
+        owners,
+        cats: categoriesFrom(rosters.categories),
+        season: cfg.season,
+      })],
+      allowed_mentions: { parse: [] },
+    };
   } catch (err) {
     console.error(err);
     return onlyYou(`Could not reach ESPN: ${err.message}`);
@@ -1311,7 +1360,11 @@ export default {
       return json({ type: REPLY, data: await handlePlayer(interaction, env) });
     }
 
-    if (interaction.type === AUTOCOMPLETE && interaction.data?.name === 'player') {
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'compare') {
+      return json({ type: REPLY, data: await handleCompare(interaction, env) });
+    }
+
+    if (interaction.type === AUTOCOMPLETE && (interaction.data?.name === 'player' || interaction.data?.name === 'compare')) {
       try {
         return json({
           type: AUTOCOMPLETE_RESULT,

@@ -48,6 +48,7 @@ const cardBody = {
     },
   }],
 };
+const searchBody = { players: [{ player: { id: 100, fullName: 'Marcus Vale' } }, { player: { id: 55, fullName: 'Ned Vale' } }] };
 const bioBody = { athlete: { displayHeight: "6' 11\"", displayWeight: '245 lbs', age: 26, college: { name: 'Northern State' } } };
 
 const calls = [];
@@ -59,6 +60,7 @@ const route = (overrides = {}) => async (url, init) => {
   };
   if (url.includes('site.web.api.espn.com')) return pick('bio', bioBody);
   if (url.includes('kona_playercard')) return pick('card', cardBody);
+  if (url.includes('kona_player_info')) return pick('search', searchBody);
   return pick('league', leagueBody);
 };
 
@@ -81,6 +83,9 @@ check('counts game logs apart from splits', facts.card.logCount === 15 && facts.
 check('notes whether logs carry per-game numbers', facts.card.logsHaveAverages === true && facts.card.logsHaveStats === true);
 check('reads which bio fields exist', facts.bio.status === 200 && facts.bio.fields.join() === 'displayHeight,displayWeight,age,college');
 
+check('probes the name search by surname', facts.search.term === 'Vale' && facts.search.count === 2 && facts.search.matched === true);
+check('and lists who it found', facts.search.names.join() === 'Marcus Vale,Ned Vale');
+
 console.log('\n--- what it asks ESPN for ---');
 const cardCall = calls.find((c) => c.url.includes('kona_playercard'));
 const filter = JSON.parse(cardCall.headers['x-fantasy-filter']).players;
@@ -88,6 +93,10 @@ check('asks about the one player', filter.filterIds.value.join() === '100');
 check('asks for game-by-game logs', filter.filterStatsForTopScoringPeriodIds.value === 15);
 check('asks for every split', ['002027', '102027', '012027', '022027', '032027'].every((id) => filter.filterStatsForTopScoringPeriodIds.additionalValue.includes(id)));
 check('and four earlier seasons', ['002026', '002025', '002024', '002023'].every((id) => filter.filterStatsForTopScoringPeriodIds.additionalValue.includes(id)));
+const searchCall = calls.find((c) => c.url.includes('kona_player_info'));
+const searchFilter = JSON.parse(searchCall.headers['x-fantasy-filter']).players;
+check('the search filters by name over every player status', searchFilter.filterName.value === 'Vale' && searchFilter.filterStatus.value.includes('FREEAGENT') && searchFilter.filterStatus.value.includes('ONTEAM'));
+check('and is capped', searchFilter.limit === 5);
 check('asks the settings view for the league', calls.some((c) => c.url.includes('view=mSettings')));
 check('sends the cookies to ESPN\'s fantasy API', cardCall.headers.Cookie.includes('secret-s2-value'));
 check('but not to the public bio page', !calls.find((c) => c.url.includes('site.web.api.espn.com')).headers.Cookie);
@@ -102,6 +111,7 @@ check('shows the player card section', text.includes('**Player card: Marcus Vale
 check('shows ownership and ranks', text.includes('ownership: 97.2') && text.includes('ranks: STANDARD'));
 check('shows splits with the per-game marker', text.includes('002027*'));
 check('shows the game log verdict', text.includes('game logs: 15') && text.includes('per-game: yes'));
+check('shows the name search verdict', text.includes('**Name search:** "Vale" gave 2 results (Marcus Vale, Ned Vale)'));
 check('shows the bio verdict', text.includes('**Bio page:** HTTP 200 · has displayHeight'));
 check('has no failure section when nothing failed', !text.includes('Failed'));
 check('fits Discord\'s 2000', text.length <= 2000);
@@ -118,10 +128,17 @@ check('a 401 names the cookies', f.errors[0].includes('ESPN_S2'));
 f = await diagnose(cfg, 100, { fetchImpl: route({ bio: 404 }) });
 check('a missing bio page is a finding, not a failure', f.errors.length === 0 && f.bio.status === 404 && diagnosticMessage(f).includes('HTTP 404 · has nothing usable'));
 f = await diagnose(cfg, 100, { fetchImpl: async () => { throw new Error('network down'); } });
-check('everything failing still returns a report', f.errors.length === 3);
+check('everything failing still returns a report', f.errors.length === 4);
+let g = await diagnose(cfg, 100, { fetchImpl: route({ search: 500 }) });
+check('a search that fails does not stop the rest', g.errors.length === 1 && g.errors[0].startsWith('search:') && g.card && g.bio);
+g = await diagnose(cfg, 100, { fetchImpl: route() });
+g.search = { term: 'Vale', count: 0, names: [], matched: false };
+check('no search results says so', diagnosticMessage(g).includes('gave 0 results'));
+g.search = { term: 'Vale', count: 1, names: ['Someone Else'], matched: false };
+check('results that do not match are called out', diagnosticMessage(g).includes('but none matched'));
 check('and it renders', diagnosticMessage(f).includes('network down'));
 
-const bare = { league: { scoringType: null, teams: null, scoringPeriodId: null, finalScoringPeriod: null, matchupPeriod: null, categories: null, reversed: null, tradeKeys: [], deadline: null },
+const bare = { search: { term: 'x', count: 1, names: [], matched: true }, league: { scoringType: null, teams: null, scoringPeriodId: null, finalScoringPeriod: null, matchupPeriod: null, categories: null, reversed: null, tradeKeys: [], deadline: null },
   card: { name: null, entryKeys: [], playerKeys: [], ownershipKeys: [], percentOwned: null, rankKeys: [], ratingKeys: [], splits: [], seasons: [], logCount: 0, logIds: [], logsHaveAverages: null, logsHaveStats: null },
   bio: { status: 200, fields: [] }, errors: [] };
 text = diagnosticMessage(bare);
@@ -148,12 +165,27 @@ out = await handleFantasy(cmd('fantasy', 'debug', { player: 'Marcus' }, MOD), en
 check('a hand-typed name is refused', out.flags === 64 && out.content.includes('from the list') && seen.length === 2);
 out = await handleFantasy(cmd('fantasy', 'debug', {}, MOD), {}, deps);
 check('before setup, says so', out.content.includes('not been connected'));
+const empty = { teams: [{ id: 1, name: 'A', players: [] }, { id: 2, name: 'B', players: [] }], tradeDeadline: null };
+seen = [];
+out = await handleFantasy(cmd('fantasy', 'debug', {}, MOD), env, { ...deps, fetchRosters: async () => empty });
+check('before the draft it still runs, on a default player', seen[0] === 3112335 && out.content.includes('**League**'));
+check('and says nobody is rostered yet', out.content.startsWith('Nobody is on a roster yet'));
+out = await handleFantasy(cmd('fantasy', 'debug', { player: '555' }, MOD), env, { ...deps, fetchRosters: async () => empty });
+check('a typed player id is used as given', seen[1] === 555 && !out.content.startsWith('Nobody'));
 
 const ac = (typed) => ({ data: { name: 'fantasy', options: [{ name: 'debug', options: [{ name: 'player', value: typed, focused: true }] }] }, member: MOD });
 let c = await handleFantasyAutocomplete(ac(''), env, { fetchRosters: async () => rosters });
 check('autocomplete offers players', c.map((x) => x.value).join() === '100,101');
 c = await handleFantasyAutocomplete(ac('oka'), env, { fetchRosters: async () => rosters });
 check('and filters them', c.length === 1 && c[0].name === 'Jules Okafor');
+
+const acEmpty = (typed) => ({ data: { name: 'fantasy', options: [{ name: 'debug', options: [{ name: 'player', value: typed, focused: true }] }] }, member: MOD });
+c = await handleFantasyAutocomplete(acEmpty('3112335'), env, { fetchRosters: async () => empty });
+check('before the draft, a typed id is offered as itself', c.length === 1 && c[0].value === '3112335' && c[0].name === 'Player id 3112335');
+c = await handleFantasyAutocomplete(acEmpty('jok'), env, { fetchRosters: async () => empty });
+check('and a typed name offers nothing, not a wrong guess', c.length === 0);
+c = await handleFantasyAutocomplete(acEmpty('10'), env, { fetchRosters: async () => rosters });
+check('a typed id is offered alongside any matching names', c[0].value === '10' && c.length >= 1);
 
 const fan = COMMANDS.find((x) => x.name === 'fantasy');
 const dbg = fan.options.find((o) => o.name === 'debug');

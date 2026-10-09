@@ -580,6 +580,9 @@ export async function runCron(env, api, deps = {}) {
 /** Discord rejects a message over this many characters outright. */
 const MAX_MESSAGE = 2000;
 
+/** An ESPN player id to inspect when nobody is on a roster yet. */
+const FALLBACK_DEBUG_PLAYER = 3112335;
+
 /** The cron that drives the fantasy feed. Kept in step with wrangler.toml. */
 export const FANTASY_CRON = '*/10 * * * *';
 
@@ -628,9 +631,14 @@ export async function handleFantasy(interaction, env, deps = {}) {
       // against the real league in one command.
       const rosters = await fetchRosters(cfg);
       const first = rosters.teams.flatMap((t) => t.players)[0];
-      const id = args.player !== undefined ? Number(args.player) : first?.id;
-      if (!Number.isInteger(id)) return onlyYou('Pick a player from the list, or leave it empty.');
-      return onlyYou(diagnosticMessage(await diagnose(cfg, id)));
+      // Before the draft nobody is on a roster, so there is no one to default
+      // to. A player card works for any ESPN player id, rostered or not.
+      const id = args.player !== undefined ? Number(args.player) : (first?.id ?? FALLBACK_DEBUG_PLAYER);
+      if (!Number.isInteger(id)) return onlyYou('Pick a player from the list, or type an ESPN player id.');
+      const note = args.player === undefined && !first
+        ? 'Nobody is on a roster yet, so this used a default player.\n'
+        : '';
+      return onlyYou((note + diagnosticMessage(await diagnose(cfg, id))).slice(0, MAX_MESSAGE));
     } else if (sub === 'link') {
       // A claim, not a proof: nothing ties a Discord account to an ESPN one.
       // It is enough for a friend group, and a mod can reassign a wrong one.
@@ -1030,7 +1038,10 @@ export async function handleFantasyAutocomplete(interaction, env, deps = {}) {
     return choices(rosters.teams.filter((t) => !mine || t.id !== mine.teamId));
   }
   if (sub === 'debug') {
-    return choices(rosters.teams.flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name }))));
+    const found = choices(rosters.teams.flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name }))));
+    // Anyone can be inspected by ESPN player id, rostered or not, which is the
+    // only way in before the draft, when the list above is empty.
+    return /^\d+$/.test(typed) ? [{ name: `Player id ${typed}`, value: typed }, ...found].slice(0, 25) : found;
   }
   if (sub !== 'propose') return [];
 

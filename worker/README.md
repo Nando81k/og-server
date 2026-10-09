@@ -238,6 +238,52 @@ the URL limit, so the chart steps down from 15 games to 10, 7 or 5 rather than
 overflow. If the columns are on different bases the footer says to read the
 leads loosely.
 
+## Practice drafts
+
+A mock draft run entirely in Discord. **Nothing is ever sent to ESPN.**
+
+1. A mod runs `/draft start [rounds] [clock]`: a lobby is posted listing every
+   team in the league.
+2. Managers press **Join** (or `/draft join`). A team needs a `/fantasy link`
+   first, which is how the bot knows which team is yours. Any team nobody joins
+   is drafted by a bot.
+3. A mod presses **Begin draft** (or `/draft begin`). The order is drawn at
+   random, the player pool (the top 250 by ESPN's ADP) is frozen for the whole
+   draft, and the lobby message becomes a pinned **board** edited after every
+   pick: who is on the clock, a countdown, the last six picks and the best
+   available players.
+4. On your turn use `/draft pick` (the best available are listed first; any
+   player in the pool can be typed) or press **Draft best available**. **My
+   roster** and **Full board** are private views.
+
+Snake order. Bots take one of the best five available by ADP, weighted towards
+the top (50/25/12/8/5 percent) so two practice drafts are not the same draft.
+Bot picks happen straight away; a person gets the clock, and if it runs out the
+best available is picked for them.
+
+**The clock** is checked once a minute by a third cron trigger
+(`* * * * *`), so an expired clock is acted on within about a minute, not to
+the second. The check does one cheap query and returns when no draft is
+running. `src/index.mjs` matches the trigger by exact string (`DRAFT_CRON`), so
+it must match `wrangler.toml`; an unrecognised cron string falls through to the
+daily job.
+
+Draft commands answer immediately with "working..." and finish in the
+background, because a pick can mean several bot picks and Discord calls, which
+will not always fit Discord's three-second window.
+
+**Deploying this adds four tables**, so apply the schema once:
+
+```bash
+cd worker
+wrangler d1 execute og-pickem --remote --file=./schema.sql
+wrangler deploy
+node ../scripts/discord/register-commands.mjs
+```
+
+Run `/fantasy debug` afterwards: it now reports how many draftable players ESPN
+returns and how many have an ADP, which is what the pool is built from.
+
 ## Tests
 
 ```bash

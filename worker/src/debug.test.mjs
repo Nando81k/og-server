@@ -48,7 +48,11 @@ const cardBody = {
     },
   }],
 };
-const searchBody = { players: [{ player: { id: 100, fullName: 'Marcus Vale' } }, { player: { id: 55, fullName: 'Ned Vale' } }] };
+const searchBody = { players: [
+  { player: { id: 100, fullName: 'Marcus Vale', ownership: { averageDraftPosition: 12.5 } } },
+  { player: { id: 55, fullName: 'Ned Vale', ownership: { averageDraftPosition: 88 } } },
+  { player: { id: 56, fullName: 'No Adp' } },
+] };
 const bioBody = { athlete: { displayHeight: "6' 11\"", displayWeight: '245 lbs', age: 26, college: { name: 'Northern State' } } };
 
 const calls = [];
@@ -83,8 +87,9 @@ check('counts game logs apart from splits', facts.card.logCount === 15 && facts.
 check('notes whether logs carry per-game numbers', facts.card.logsHaveAverages === true && facts.card.logsHaveStats === true);
 check('reads which bio fields exist', facts.bio.status === 200 && facts.bio.fields.join() === 'displayHeight,displayWeight,age,college');
 
-check('probes the name search by surname', facts.search.term === 'Vale' && facts.search.count === 2 && facts.search.matched === true);
-check('and lists who it found', facts.search.names.join() === 'Marcus Vale,Ned Vale');
+check('probes the name search by surname', facts.search.term === 'Vale' && facts.search.count === 3 && facts.search.matched === true);
+check('probes the draft pool and how many have an ADP', facts.pool.count === 3 && facts.pool.withAdp === 2 && facts.pool.first === 'Marcus Vale');
+check('and lists who it found', facts.search.names.join() === 'Marcus Vale,Ned Vale,No Adp');
 
 console.log('\n--- what it asks ESPN for ---');
 const cardCall = calls.find((c) => c.url.includes('kona_playercard'));
@@ -111,7 +116,8 @@ check('shows the player card section', text.includes('**Player card: Marcus Vale
 check('shows ownership and ranks', text.includes('ownership: 97.2') && text.includes('ranks: STANDARD'));
 check('shows splits with the per-game marker', text.includes('002027*'));
 check('shows the game log verdict', text.includes('game logs: 15') && text.includes('per-game: yes'));
-check('shows the name search verdict', text.includes('**Name search:** "Vale" gave 2 results (Marcus Vale, Ned Vale)'));
+check('shows the name search verdict', text.includes('**Name search:** "Vale" gave 3 results (Marcus Vale, Ned Vale, No Adp)'));
+check('shows the draft pool verdict', text.includes('**Draft pool:** 3 players, 2 with an ADP, best is Marcus Vale'));
 check('shows the bio verdict', text.includes('**Bio page:** HTTP 200 · has displayHeight'));
 check('has no failure section when nothing failed', !text.includes('Failed'));
 check('fits Discord\'s 2000', text.length <= 2000);
@@ -128,9 +134,9 @@ check('a 401 names the cookies', f.errors[0].includes('ESPN_S2'));
 f = await diagnose(cfg, 100, { fetchImpl: route({ bio: 404 }) });
 check('a missing bio page is a finding, not a failure', f.errors.length === 0 && f.bio.status === 404 && diagnosticMessage(f).includes('HTTP 404 · has nothing usable'));
 f = await diagnose(cfg, 100, { fetchImpl: async () => { throw new Error('network down'); } });
-check('everything failing still returns a report', f.errors.length === 4);
+check('everything failing still returns a report', f.errors.length === 5);
 let g = await diagnose(cfg, 100, { fetchImpl: route({ search: 500 }) });
-check('a search that fails does not stop the rest', g.errors.length === 1 && g.errors[0].startsWith('search:') && g.card && g.bio);
+check('a search that fails does not stop the rest', g.errors.length === 2 && g.errors[0].startsWith('search:') && g.errors[1].startsWith('pool:') && g.card && g.bio);
 g = await diagnose(cfg, 100, { fetchImpl: route() });
 g.search = { term: 'Vale', count: 0, names: [], matched: false };
 check('no search results says so', diagnosticMessage(g).includes('gave 0 results'));

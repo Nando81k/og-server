@@ -20,7 +20,13 @@ compatibility_date = "2026-09-01"
 # morning is stale. scheduled() tells the two apart by event.cron, so the
 # string must match FANTASY_CRON in src/index.mjs exactly. Until
 # FANTASY_LEAGUE_ID is set it returns immediately and costs nothing.
-crons = ["0 9 * * *", "*/10 * * * *"]
+#
+# The third trigger keeps practice drafts moving: it auto-picks for anyone whose
+# pick clock has run out. It does one cheap query and returns when no draft is
+# running. Like the one above it is matched by exact string against DRAFT_CRON
+# in src/index.mjs, and an unrecognised string would fall through to the daily
+# job, so keep them identical.
+crons = ["0 9 * * *", "*/10 * * * *", "* * * * *"]
 
 # Keep the logs. Without this, console.log and console.error exist only in the
 # moment — readable by `wrangler tail` and by nobody else, ever. The cron runs

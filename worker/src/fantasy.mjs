@@ -437,6 +437,48 @@ export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.n
   return value;
 }
 
+/**
+ * The players worth drafting, best first by ESPN's average draft position.
+ *
+ * Asks for the most-owned players (the same search view /player uses, whose
+ * answers are confirmed against the real league) and orders them by ADP here
+ * rather than trusting ESPN to sort by it, since the sort option for ADP is
+ * not one I have seen answer. A player with no ADP falls back to his ESPN
+ * rank, then to the end of the list, so nobody worth drafting is dropped for
+ * missing a number.
+ */
+export async function fetchDraftPool(cfg, { limit = 250, ...deps } = {}) {
+  const json = await get(cfg, {
+    views: ['kona_player_info'],
+    filter: {
+      players: {
+        filterStatus: { value: ['FREEAGENT', 'WAIVERS', 'ONTEAM'] },
+        limit,
+        sortPercOwned: { sortPriority: 1, sortAsc: false },
+      },
+    },
+    unwrap: true,
+    ...deps,
+  });
+  if (!Array.isArray(json?.players)) throw new Error('Malformed payload: missing players');
+  const seen = new Set();
+  return json.players
+    .map((e) => e.player ?? e)
+    .filter((p) => p.id !== undefined && p.fullName && !seen.has(p.id) && seen.add(p.id))
+    .map((p) => {
+      const adp = p.ownership?.averageDraftPosition;
+      const rank = p.draftRanksByRankType?.STANDARD?.rank;
+      return {
+        id: p.id,
+        name: p.fullName,
+        position: POSITIONS[(p.defaultPositionId ?? 0) - 1] ?? '',
+        proTeam: PRO_TEAMS[p.proTeamId] ?? '',
+        adp: typeof adp === 'number' && adp > 0 ? adp : typeof rank === 'number' && rank > 0 ? rank : 9999,
+      };
+    })
+    .sort((a, b) => a.adp - b.adp || a.id - b.id);
+}
+
 // Autocomplete asks on every keystroke, and the same few prefixes repeat, so
 // recent searches are kept for a minute.
 let searchCache = new Map();
@@ -621,6 +663,12 @@ export async function diagnose(cfg, playerId, { fetchImpl = fetch, ...deps } = {
     };
   });
 
+  // Whether the draft pool comes back, and how many of those have a real ADP.
+  await run('pool', async () => {
+    const pool = await fetchDraftPool(cfg, { fetchImpl, ...deps });
+    return { count: pool.length, withAdp: pool.filter((p) => p.adp < 9999).length, first: pool[0]?.name ?? null };
+  });
+
   await run('bio', async () => {
     const res = await fetchImpl(
       `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}`,
@@ -671,6 +719,10 @@ export function diagnosticMessage(facts) {
         (S.names.length ? ` (${S.names.join(', ')})` : '') +
         (S.count && !S.matched ? ', but none matched' : '')
     );
+  }
+  const PL = facts.pool;
+  if (PL) {
+    out.push(`**Draft pool:** ${PL.count} players, ${PL.withAdp} with an ADP${PL.first ? `, best is ${PL.first}` : ''}`);
   }
   const B = facts.bio;
   if (B) out.push(`**Bio page:** HTTP ${B.status} · has ${B.fields.length ? B.fields.join(', ') : 'nothing usable'}`);

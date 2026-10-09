@@ -446,3 +446,186 @@ export async function tradeVotes(db, tradeId) {
     .all();
   return (results ?? []).map((r) => ({ userId: r.user_id, vote: r.vote }));
 }
+
+// --- mock drafts -------------------------------------------------------------
+
+const draftShape = (r) => (r ? {
+  id: r.id,
+  season: r.season,
+  status: r.status,
+  rounds: r.rounds,
+  clockSeconds: r.clock_seconds,
+  seats: parse(r.seats, []),
+  seatsRaw: r.seats,
+  pickNo: r.pick_no,
+  deadline: r.deadline ?? null,
+  channelId: r.channel_id ?? null,
+  messageId: r.message_id ?? null,
+  createdBy: r.created_by,
+  createdAt: r.created_at,
+} : null);
+
+const pickShape = (r) => ({
+  draftId: r.draft_id,
+  pickNo: r.pick_no,
+  teamId: r.team_id,
+  playerId: r.player_id,
+  name: r.player_name,
+  position: r.position,
+  proTeam: r.pro_team,
+  auto: r.auto === 1,
+  pickedAt: r.picked_at,
+});
+
+const poolShape = (r) => ({
+  id: r.player_id,
+  name: r.name,
+  position: r.position,
+  proTeam: r.pro_team,
+  adp: r.adp,
+});
+
+export async function createDraft(db, { season, rounds, clockSeconds, seats, createdBy, now }) {
+  const res = await db
+    .prepare(
+      `INSERT INTO drafts (season, status, rounds, clock_seconds, seats, pick_no, created_by, created_at)
+       VALUES (?, 'lobby', ?, ?, ?, 1, ?, ?)`
+    )
+    .bind(season, rounds, clockSeconds, JSON.stringify(seats), createdBy, now ?? new Date().toISOString())
+    .run();
+  return res?.meta?.last_row_id;
+}
+
+export async function getDraft(db, id) {
+  const { results } = await db.prepare(`SELECT * FROM drafts WHERE id = ?`).bind(id).all();
+  return draftShape(results?.[0]);
+}
+
+/** The draft that is open or under way, if any. One at a time per season. */
+export async function activeDraft(db, season) {
+  const { results } = await db
+    .prepare(`SELECT * FROM drafts WHERE season = ? AND status IN ('lobby', 'running') ORDER BY id DESC LIMIT 1`)
+    .bind(season)
+    .all();
+  return draftShape(results?.[0]);
+}
+
+/** Every draft under way, across seasons: what the once-a-minute check works through. */
+export async function runningDrafts(db) {
+  const { results } = await db.prepare(`SELECT * FROM drafts WHERE status = 'running' ORDER BY id`).all();
+  return (results ?? []).map(draftShape);
+}
+
+export async function setDraftMessage(db, id, channelId, messageId) {
+  await db.prepare(`UPDATE drafts SET channel_id = ?, message_id = ? WHERE id = ?`).bind(channelId, messageId, id).run();
+}
+
+/**
+ * Change who has which seat, but only if nobody else has since the seats were
+ * read. Two people pressing Join in the same moment both read the same seats,
+ * and a plain overwrite would drop one of them.
+ */
+export async function updateSeats(db, id, previousRaw, seats) {
+  const res = await db
+    .prepare(`UPDATE drafts SET seats = ? WHERE id = ? AND seats = ? AND status = 'lobby'`)
+    .bind(JSON.stringify(seats), id, previousRaw)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** Freeze the pool and start the draft, but only from the lobby. */
+export async function beginDraft(db, id, { seats, deadline, pool }) {
+  const res = await db
+    .prepare(`UPDATE drafts SET status = 'running', seats = ?, pick_no = 1, deadline = ? WHERE id = ? AND status = 'lobby'`)
+    .bind(JSON.stringify(seats), deadline ?? null, id)
+    .run();
+  if ((res?.meta?.changes ?? 0) === 0) return false;
+  // 7 columns a row and D1 allows 100 bound values a statement, so a dozen rows each.
+  const statements = [];
+  for (let i = 0; i < pool.length; i += 12) {
+    const chunk = pool.slice(i, i + 12);
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO draft_pool (draft_id, player_id, name, position, pro_team, adp) VALUES ` +
+            chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')
+        )
+        .bind(...chunk.flatMap((p) => [id, p.id, p.name, p.position, p.proTeam, p.adp]))
+    );
+  }
+  if (statements.length) await db.batch(statements);
+  return true;
+}
+
+export async function setDraftStatus(db, id, from, to, now) {
+  const marks = from.map(() => '?').join(', ');
+  const res = await db
+    .prepare(`UPDATE drafts SET status = ?, finished_at = ?, deadline = NULL WHERE id = ? AND status IN (${marks})`)
+    .bind(to, now ?? new Date().toISOString(), id, ...from)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** The best players still on the board, by ADP. */
+export async function availablePlayers(db, draftId, limit = 5, term = '') {
+  const like = term ? ` AND p.name LIKE ?` : '';
+  const binds = term ? [draftId, draftId, `%${term}%`, limit] : [draftId, draftId, limit];
+  const { results } = await db
+    .prepare(
+      `SELECT p.* FROM draft_pool p
+        WHERE p.draft_id = ?
+          AND NOT EXISTS (SELECT 1 FROM draft_picks k WHERE k.draft_id = ? AND k.player_id = p.player_id)${like}
+        ORDER BY p.adp, p.player_id LIMIT ?`
+    )
+    .bind(...binds)
+    .all();
+  return (results ?? []).map(poolShape);
+}
+
+export async function poolPlayer(db, draftId, playerId) {
+  const { results } = await db
+    .prepare(`SELECT * FROM draft_pool WHERE draft_id = ? AND player_id = ?`)
+    .bind(draftId, playerId)
+    .all();
+  return results?.[0] ? poolShape(results[0]) : null;
+}
+
+export async function draftPicks(db, draftId) {
+  const { results } = await db
+    .prepare(`SELECT * FROM draft_picks WHERE draft_id = ? ORDER BY pick_no`)
+    .bind(draftId)
+    .all();
+  return (results ?? []).map(pickShape);
+}
+
+/**
+ * Make the next pick and move the draft on, or say why not.
+ *
+ * The insert is the lock: a slot (and a player) can be filled only once, so a
+ * pick that loses a race fails here and nothing else has changed. The advance
+ * is conditional on the pick number still being the one this pick filled.
+ */
+export async function recordPick(db, draft, pick, { next, deadline, finished, now }) {
+  try {
+    await db
+      .prepare(
+        `INSERT INTO draft_picks (draft_id, pick_no, team_id, player_id, player_name, position, pro_team, auto, picked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(draft.id, draft.pickNo, pick.teamId, pick.player.id, pick.player.name, pick.player.position,
+        pick.player.proTeam, pick.auto ? 1 : 0, now ?? new Date().toISOString())
+      .run();
+  } catch (err) {
+    if (/UNIQUE|constraint/i.test(String(err.message))) return { ok: false, reason: 'taken' };
+    throw err;
+  }
+  const res = await db
+    .prepare(
+      finished
+        ? `UPDATE drafts SET pick_no = ?, deadline = NULL, status = 'done', finished_at = ? WHERE id = ? AND pick_no = ?`
+        : `UPDATE drafts SET pick_no = ?, deadline = ? WHERE id = ? AND pick_no = ?`
+    )
+    .bind(...(finished ? [next, now ?? new Date().toISOString(), draft.id, draft.pickNo] : [next, deadline ?? null, draft.id, draft.pickNo]))
+    .run();
+  return { ok: (res?.meta?.changes ?? 0) > 0, reason: 'raced' };
+}

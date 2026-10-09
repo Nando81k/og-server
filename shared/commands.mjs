@@ -212,6 +212,15 @@ export const COMMANDS = [
         ],
       },
       { type: SUB_COMMAND, name: 'cancel', description: 'Mods: call the practice draft off' },
+      {
+        type: SUB_COMMAND,
+        name: 'live',
+        description: 'Mods: follow the real ESPN draft in this channel',
+        options: [
+          { name: 'rounds', description: 'Only if the board gets the number of rounds wrong', type: INTEGER, required: false, min_value: 1, max_value: 30 },
+        ],
+      },
+      { type: SUB_COMMAND, name: 'live-off', description: 'Mods: stop following the real draft' },
     ],
   },
   {
@@ -294,7 +303,7 @@ export const COMMANDS = [
 ];
 
 /** The /draft subcommands only a mod may run. */
-export const DRAFT_MOD_ONLY = ['start', 'begin', 'cancel'];
+export const DRAFT_MOD_ONLY = ['start', 'begin', 'cancel', 'live', 'live-off'];
 
 /** The /fantasy subcommands only a mod may run. */
 export const FANTASY_MOD_ONLY = ['debug'];

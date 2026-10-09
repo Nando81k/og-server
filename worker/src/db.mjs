@@ -629,3 +629,40 @@ export async function recordPick(db, draft, pick, { next, deadline, finished, no
     .run();
   return { ok: (res?.meta?.changes ?? 0) > 0, reason: 'raced' };
 }
+
+// ------------------------------------------------------------------ live draft
+
+const liveRow = (r) => r ? {
+  season: r.season, channelId: r.channel_id, messageId: r.message_id, status: r.status, rounds: r.rounds ?? null,
+  pickCount: r.pick_count, phase: r.phase, createdBy: r.created_by, updatedAt: r.updated_at,
+} : null;
+
+export async function getLiveDraft(db, season) {
+  const { results } = await db.prepare(`SELECT * FROM live_draft WHERE season = ?`).bind(season).all();
+  return liveRow(results?.[0]);
+}
+
+/** Every board that still needs watching. */
+export async function watchedLiveDrafts(db) {
+  const { results } = await db.prepare(`SELECT * FROM live_draft WHERE status = 'watching'`).all();
+  return (results ?? []).map(liveRow);
+}
+
+/** Start (or restart, in a new message) the watch for a season. */
+export async function startLiveDraft(db, { season, channelId, messageId, rounds = null, createdBy, now }) {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO live_draft (season, channel_id, message_id, status, rounds, pick_count, phase, created_by, updated_at)
+       VALUES (?, ?, ?, 'watching', ?, 0, '', ?, ?)`
+    )
+    .bind(season, channelId, messageId, rounds, createdBy, now)
+    .run();
+}
+
+/** Record what was just drawn. The pick count only ever moves forward. */
+export async function saveLiveDraft(db, season, { pickCount, phase, status, now }) {
+  await db
+    .prepare(`UPDATE live_draft SET pick_count = ?, phase = ?, status = ?, updated_at = ? WHERE season = ?`)
+    .bind(pickCount, phase, status, now, season)
+    .run();
+}

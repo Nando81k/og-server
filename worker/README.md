@@ -272,7 +272,7 @@ Draft commands answer immediately with "working..." and finish in the
 background, because a pick can mean several bot picks and Discord calls, which
 will not always fit Discord's three-second window.
 
-**Deploying this adds four tables**, so apply the schema once:
+**Deploying this adds tables**, so apply the schema once:
 
 ```bash
 cd worker
@@ -283,6 +283,34 @@ node ../scripts/discord/register-commands.mjs
 
 Run `/fantasy debug` afterwards: it now reports how many draftable players ESPN
 returns and how many have an ADP, which is what the pool is built from.
+
+### The live board for the real draft
+
+`/draft live` (mod) posts one board in the channel it is run in and follows the
+league's **real** ESPN draft. Picks are still made in ESPN; the board only
+mirrors them.
+
+- Before the draft: when it starts and the pick order. After: round and pick,
+  who is on the clock, the last six picks and the best available (from the
+  same top-250 ADP pool, so it is a guide, not ESPN's own list).
+- The minute job asks ESPN's `mDraftDetail` view, so the board is up to about a
+  minute behind. A minute with nothing new costs one ESPN call and no Discord
+  call; the pick count last drawn is stored in the `live_draft` table, and it
+  is saved *before* Discord is told, so a slow post can never double-announce.
+- New picks are announced in one message, and whoever is on the clock is pinged
+  if they have linked their team with `/fantasy link`. Starting it mid-draft
+  does not replay picks already made.
+- **My roster** and **Full board** are private, like the mock draft's. There is
+  no pick button: this is not the place to draft.
+- `/draft live-off` stops it; it also stops itself when ESPN says the draft is
+  done.
+
+What is assumed, not confirmed: ESPN does not publish the pick countdown, so
+none is shown, and the number of rounds is taken from the league's roster slot
+count. If the board shows the wrong number of rounds, run `/draft live rounds:N`.
+`/fantasy debug` now has a "Real draft" line showing exactly what ESPN reports
+(phase, picks, order, seconds a pick, roster slots, start time); check it once
+before draft night.
 
 ## Tests
 

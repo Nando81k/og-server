@@ -59,12 +59,13 @@ import { areaChartUrl } from './chart.mjs';
 import {
   createDraft, getDraft, activeDraft, runningDrafts, setDraftMessage, updateSeats, beginDraft,
   setDraftStatus, availablePlayers, poolPlayer, draftPicks, recordPick,
+  getLiveDraft, watchedLiveDrafts, startLiveDraft, saveLiveDraft,
 } from './db.mjs';
 import {
   DEFAULT_ROUNDS, MAX_ROUNDS, DEFAULT_CLOCK, MIN_CLOCK, MAX_CLOCK, POOL_SIZE, MAX_BOT_PICKS_PER_RUN,
   slotFor, totalPicks, seatOnClock, shuffle, botChoice, lobbyEmbed, lobbyComponents, boardEmbed,
   boardComponents, rosterEmbed, roundEmbed, roundComponents, pickLine, clockLine, validatePick,
-  parseCustomId as parseDraftId,
+  liveComponents, liveOrderEmbed, parseCustomId as parseDraftId,
 } from './draft.mjs';
 import {
   fantasyConfig,
@@ -77,6 +78,8 @@ import {
   categoriesFrom,
   diagnose as fantasyDiagnose,
   fetchDraftPool as fantasyFetchDraftPool,
+  fetchDraftPoolCached as fantasyFetchDraftPoolCached,
+  fetchLiveDraft as fantasyFetchLiveDraft,
   diagnosticMessage,
   parseStandings,
   parseMatchups,
@@ -1345,6 +1348,8 @@ export async function handleDraft(interaction, env, api, deps = {}) {
     return onlyYou('Only mods can do that. You can `/draft join` the lobby and `/draft pick` on your turn.');
   }
 
+  if (sub === 'live' || sub === 'live-off') return handleLive(interaction, env, api, cfg, sub, args, deps);
+
   if (sub === 'start') {
     const live = await activeDraft(env.DB, cfg.season);
     if (live) {
@@ -1408,6 +1413,170 @@ export async function handleDraft(interaction, env, api, deps = {}) {
   return onlyYou('Not something I handle.');
 }
 
+// ------------------------------------------------------------ the real draft
+
+/**
+ * Everything the live board draws from, fetched fresh: ESPN's draft, the
+ * (cached) pool for names and "best available", the team names, and which
+ * teams belong to someone on Discord. The result is shaped like a mock draft
+ * so the same boards can draw it.
+ */
+async function liveSnapshot(env, cfg, row, deps = {}) {
+  const {
+    fetchLive = fantasyFetchLiveDraft, fetchPool = fantasyFetchDraftPoolCached, fetchRosters = fantasyFetchRosters,
+  } = deps;
+  const pool = await fetchPool(cfg, { limit: POOL_SIZE }).catch((err) => {
+    console.warn(`Live draft: no player pool: ${err.message}`);
+    return [];
+  });
+  const [live, rosters] = await Promise.all([fetchLive(cfg, { pool }), fetchRosters(cfg)]);
+  const names = new Map(rosters.teams.map((t) => [t.id, t.name]));
+  const seats = [];
+  for (const teamId of live.order) {
+    const link = await linkForTeam(env.DB, cfg.season, teamId);
+    seats.push({ teamId, name: names.get(teamId) ?? `Team ${teamId}`, userId: link?.userId ?? null, live: true });
+  }
+  const lastPick = live.picks.reduce((m, p) => Math.max(m, p.pickNo), 0);
+  const rounds = Math.max(
+    row?.rounds ?? live.slots ?? DEFAULT_ROUNDS,
+    seats.length ? Math.ceil(lastPick / seats.length) : 0,
+  );
+  const draft = {
+    id: 'live', live: true, rounds, seats, clockSeconds: live.secondsPerPick, deadline: null,
+    status: live.phase === 'live' ? 'running' : live.phase === 'done' ? 'done' : 'lobby',
+    pickNo: lastPick + 1,
+  };
+  const taken = new Set(live.picks.map((p) => p.playerId));
+  const best = pool.filter((p) => !taken.has(p.id)).slice(0, 5);
+  return { live, draft, picks: live.picks, best, lastPick };
+}
+
+/** The live board's message body for a snapshot. */
+function liveBoard(snap) {
+  const { live, draft, picks, best } = snap;
+  if (live.phase === 'waiting') {
+    return { embeds: [liveOrderEmbed({ draft, date: live.date })], components: [], allowed_mentions: { parse: [] } };
+  }
+  return {
+    embeds: [boardEmbed({ draft, recent: picks.slice(-6).reverse(), best })],
+    components: liveComponents(),
+    allowed_mentions: { parse: [] },
+  };
+}
+
+/** /draft live and /draft live-off. */
+async function handleLive(interaction, env, api, cfg, sub, args, deps) {
+  const { now = Date.now() } = deps;
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const existing = await getLiveDraft(env.DB, cfg.season);
+
+  if (sub === 'live-off') {
+    if (!existing || existing.status !== 'watching') return onlyYou('The live board is not running.');
+    await saveLiveDraft(env.DB, cfg.season, { pickCount: existing.pickCount, phase: existing.phase, status: 'stopped', now: isoAt(now) });
+    await api.editMessage(existing.channelId, existing.messageId, {
+      embeds: [{ title: 'The live board was stopped', color: 0x5b6270, description: 'A mod can start it again with `/draft live`.' }],
+      components: [],
+      allowed_mentions: { parse: [] },
+    }).catch((e) => console.warn(`live board: ${e.message}`));
+    return onlyYou('Stopped. The board will not update any more.');
+  }
+
+  const rounds = args.rounds ?? null;
+  if (rounds !== null && (!Number.isInteger(rounds) || rounds < 1 || rounds > 30)) return onlyYou('Rounds must be between 1 and 30.');
+  const snap = await liveSnapshot(env, cfg, { rounds }, deps);
+  const channel = interaction.channel_id;
+  const posted = await api.postMessage(channel, '', { parse: [] }, liveBoard(snap));
+  // Drawn from the draft as it stands now, so the first check announces only
+  // what happens next and a draft already under way is not replayed.
+  await startLiveDraft(env.DB, { season: cfg.season, channelId: channel, messageId: posted.id, rounds, createdBy: userId, now: isoAt(now) });
+  await saveLiveDraft(env.DB, cfg.season, { pickCount: snap.lastPick, phase: snap.live.phase, status: 'watching', now: isoAt(now) });
+  if (existing && existing.status === 'watching' && existing.messageId !== posted.id) {
+    await api.editMessage(existing.channelId, existing.messageId, {
+      embeds: [{ title: 'This board moved', color: 0x5b6270, description: `The live board is now in <#${channel}>.` }],
+      components: [],
+      allowed_mentions: { parse: [] },
+    }).catch((e) => console.warn(`live board: ${e.message}`));
+  }
+  const note = [];
+  if (!snap.draft.seats.length) note.push('ESPN has not set the pick order yet.');
+  note.push(`Rounds: ${snap.draft.rounds}${rounds === null ? ' (from the league’s roster slots; if that is wrong, run this again with `rounds:`)' : ''}.`);
+  return onlyYou(`The live board is up in <#${channel}>. It follows ESPN's draft about once a minute and pings managers on their pick. ${note.join(' ')}`);
+}
+
+/** The once-a-minute pass that keeps the live board true to ESPN. */
+export async function runLiveDraft(env, api, deps = {}) {
+  const { now = Date.now() } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return { checked: 0, picks: 0 };
+  const rows = (await watchedLiveDrafts(env.DB)).filter((r) => r.season === cfg.season);
+  let picks = 0;
+  for (const row of rows) {
+    const snap = await liveSnapshot(env, cfg, row, deps);
+    const fresh = snap.picks.filter((p) => p.pickNo > row.pickCount);
+    if (snap.live.phase === row.phase && fresh.length === 0) continue;
+
+    // Saved before anything is said, so a slow or failed Discord call can
+    // never make the next minute announce the same picks again.
+    await saveLiveDraft(env.DB, cfg.season, {
+      pickCount: Math.max(row.pickCount, snap.lastPick), phase: snap.live.phase,
+      status: snap.live.phase === 'done' ? 'done' : 'watching', now: isoAt(now),
+    });
+    picks += fresh.length;
+
+    try {
+      await api.editMessage(row.channelId, row.messageId, liveBoard(snap));
+      const lines = [];
+      if (row.phase !== 'live' && snap.live.phase === 'live' && fresh.length <= 1) lines.push('The draft has started.');
+      const shown = fresh.slice(-MAX_BOT_PICKS_PER_RUN);
+      if (fresh.length > shown.length) lines.push(`…${fresh.length - shown.length} earlier picks are on the board.`);
+      for (const pick of shown) lines.push(pickLine(pick, snap.draft.seats.find((x) => x.teamId === pick.teamId)));
+      const users = [];
+      if (snap.live.phase === 'done') {
+        lines.push('That was the last pick. The draft is done.');
+      } else {
+        const seat = seatOnClock(snap.draft);
+        if (seat?.userId) { lines.push(clockLine(snap.draft, seat)); users.push(seat.userId); }
+      }
+      if (lines.length) await api.postMessage(row.channelId, lines.join('\n'), { parse: [], users });
+    } catch (err) {
+      console.warn(`Live draft: could not update the board: ${err.message}`);
+    }
+  }
+  return { checked: rows.length, picks };
+}
+
+/** My roster / Full board on the live board. */
+async function handleLiveButton(interaction, env, parsed, deps) {
+  const refuse = (text) => ({ update: false, data: onlyYou(text) });
+  const cfg = fantasyConfig(env);
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const row = await getLiveDraft(env.DB, cfg.season);
+  if (!row) return refuse('There is no live board running.');
+  const snap = await liveSnapshot(env, cfg, row, deps);
+  const { draft, picks } = snap;
+
+  if (parsed.action === 'roster') {
+    const link = await getLink(env.DB, cfg.season, userId);
+    if (!link) return refuse('Link your team first with `/fantasy link`.');
+    const seatIndex = draft.seats.findIndex((x) => x.teamId === link.teamId);
+    if (seatIndex < 0) return refuse('Your team is not in the draft order yet.');
+    return { update: false, data: { embeds: [rosterEmbed({ draft, seatIndex, picks })], flags: PRIVATE, allowed_mentions: { parse: [] } } };
+  }
+  if (parsed.action !== 'board' && parsed.action !== 'round') return refuse('Not something I handle.');
+  if (!draft.seats.length) return refuse('ESPN has not set the pick order yet.');
+  const current = Math.min(draft.rounds, Math.max(1, slotFor(Math.min(draft.pickNo, totalPicks(draft)), draft.seats.length).round));
+  const round = parsed.action === 'round' ? Math.min(draft.rounds, Math.max(1, parsed.arg ?? current)) : current;
+  return {
+    update: parsed.action === 'round',
+    data: {
+      embeds: [roundEmbed({ draft, picks, round })],
+      components: roundComponents('live', round, draft.rounds),
+      flags: PRIVATE,
+      allowed_mentions: { parse: [] },
+    },
+  };
+}
+
 /**
  * A press on one of a draft's buttons. Returns { update, data } like the trade
  * Explore panel: `update` rewrites the message that was clicked, otherwise the
@@ -1420,6 +1589,7 @@ export async function handleDraftButton(interaction, env, api, deps = {}) {
   const parsed = parseDraftId(interaction.data?.custom_id);
   if (!parsed) return refuse('Not something I handle.');
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  if (parsed.draftId === 'live') return handleLiveButton(interaction, env, parsed, deps);
 
   if (parsed.action === 'join' || parsed.action === 'leave') {
     const r = await changeSeat(env, api, cfg, parsed.draftId, userId, parsed.action);
@@ -1875,8 +2045,24 @@ export default {
     // The once-a-minute draft check, before anything else: an unrecognised
     // cron falls through to the daily job, which must never run every minute.
     if (event?.cron === DRAFT_CRON) {
-      const out = await runDraftTick(env, api);
-      if (out.drafts) console.log(`Mock drafts: ${out.drafts} running, ${out.picks} picks made.`);
+      // Independent jobs: a practice draft failing must not stop the real
+      // draft's board, but it must still fail the invocation.
+      const failures = [];
+      try {
+        const out = await runDraftTick(env, api);
+        if (out.drafts) console.log(`Mock drafts: ${out.drafts} running, ${out.picks} picks made.`);
+      } catch (err) {
+        console.error(`Mock draft tick failed: ${err.message}`);
+        failures.push(`mock: ${err.message}`);
+      }
+      try {
+        const out = await runLiveDraft(env, api);
+        if (out.checked) console.log(`Live draft: ${out.picks} new picks.`);
+      } catch (err) {
+        console.error(`Live draft failed: ${err.message}`);
+        failures.push(`live: ${err.message}`);
+      }
+      if (failures.length) throw new Error(failures.join('; '));
       return;
     }
     if (event?.cron === FANTASY_CRON) {

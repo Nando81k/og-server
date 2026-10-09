@@ -203,6 +203,27 @@ guesses, and the bot now follows them:
 - **Not available:** per-season stats further back than last season came back
   empty, so a multi-season chart would need another source.
 
+## The /player card
+
+`/player` replies with a Discord embed rather than plain text: the colour bar
+is his health (green healthy, amber day-to-day, red out), with his headshot, a
+row of rank / ownership / owner in your league, a bio line, the per-game table,
+and an **area chart of his last 15 games** (points, with the average as a
+dashed line).
+
+- The chart is an image drawn by **QuickChart** (quickchart.io) from a URL this
+  bot builds. QuickChart sees only the per-game numbers and the chart styling,
+  never a token, cookie or anything about the server. If it is ever down the
+  card simply has no picture.
+- Before the season the games are last season's, and the chart is titled as
+  such ("last 15 games of 2025-26") rather than passed off as recent form.
+- The headshot comes from ESPN's image host by player id and is **not
+  verified**; if it is missing, Discord just shows no thumbnail.
+- The game-by-game entries are read as that game's totals under the same stat
+  ids as the averages (the debug run confirmed 15 come back with totals). How
+  ESPN orders them is not confirmed, so they are sorted by scoring period when
+  every game has one.
+
 ## Tests
 
 ```bash

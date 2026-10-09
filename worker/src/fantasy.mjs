@@ -276,17 +276,23 @@ const PRO_TEAMS = {
 /** ESPN's stat ids for the categories shown, keyed by what this code calls them. */
 const STAT_ID = { pts: '0', blk: '1', stl: '2', ast: '3', reb: '6', to: '11', tpm: '17', fg: '19', ft: '20', min: '40', gp: '42' };
 
+/** Two-digit prefixes of the stat windows. Any other id is a single game. */
+const SPLIT_PREFIXES = new Set(['00', '01', '02', '03', '10']);
+
+/** How many recent games a card keeps for charting. */
+const MAX_GAMES = 15;
+
 /** The category columns, in the order they are always shown. */
 export const CATEGORIES = [
-  { key: 'pts', label: 'PTS', pct: false, lowerIsBetter: false },
-  { key: 'reb', label: 'REB', pct: false, lowerIsBetter: false },
-  { key: 'ast', label: 'AST', pct: false, lowerIsBetter: false },
-  { key: 'stl', label: 'STL', pct: false, lowerIsBetter: false },
-  { key: 'blk', label: 'BLK', pct: false, lowerIsBetter: false },
-  { key: 'tpm', label: '3PM', pct: false, lowerIsBetter: false },
-  { key: 'fg', label: 'FG%', pct: true, lowerIsBetter: false },
-  { key: 'ft', label: 'FT%', pct: true, lowerIsBetter: false },
-  { key: 'to', label: 'TO', pct: false, lowerIsBetter: true },
+  { key: 'pts', label: 'PTS', name: 'Points', pct: false, lowerIsBetter: false },
+  { key: 'reb', label: 'REB', name: 'Rebounds', pct: false, lowerIsBetter: false },
+  { key: 'ast', label: 'AST', name: 'Assists', pct: false, lowerIsBetter: false },
+  { key: 'stl', label: 'STL', name: 'Steals', pct: false, lowerIsBetter: false },
+  { key: 'blk', label: 'BLK', name: 'Blocks', pct: false, lowerIsBetter: false },
+  { key: 'tpm', label: '3PM', name: 'Threes made', pct: false, lowerIsBetter: false },
+  { key: 'fg', label: 'FG%', name: 'Field goal %', pct: true, lowerIsBetter: false },
+  { key: 'ft', label: 'FT%', name: 'Free throw %', pct: true, lowerIsBetter: false },
+  { key: 'to', label: 'TO', name: 'Turnovers', pct: false, lowerIsBetter: true },
 ];
 
 /**
@@ -325,6 +331,31 @@ const INJURY = {
 };
 
 /**
+ * A player's most recent games, oldest first, from the single-game entries in
+ * his stats.
+ *
+ * Each such entry carries that game's totals under the same stat ids as the
+ * averages. The debug run against the real league confirmed 15 of them come
+ * back with totals and no averages. What it did not show is how they are
+ * ordered, so they are sorted by scoring period when every one has one, and
+ * left in ESPN's order when not.
+ */
+export function gameLog(stats) {
+  const logs = (Array.isArray(stats) ? stats : []).filter(
+    (x) => !SPLIT_PREFIXES.has(String(x.id).slice(0, 2)) && typeof x.stats?.[STAT_ID.pts] === 'number'
+  );
+  const games = logs.map((x) => {
+    const g = { season: x.seasonId ?? null, period: typeof x.scoringPeriodId === 'number' ? x.scoringPeriodId : null };
+    for (const [key, id] of Object.entries(STAT_ID)) {
+      if (key !== 'gp') g[key] = typeof x.stats[id] === 'number' ? x.stats[id] : null;
+    }
+    return g;
+  });
+  if (games.every((g) => g.period !== null)) games.sort((a, b) => a.period - b.period);
+  return games.slice(-MAX_GAMES);
+}
+
+/**
  * Player cards from ESPN's kona_playercard view, keyed by player id.
  *
  * Splits are matched by ESPN's id scheme: two digits for the split (00 season
@@ -347,6 +378,8 @@ export function parsePlayerCards(json, season) {
     out.set(id, {
       id,
       name: p.fullName,
+      jersey: p.jersey ?? null,
+      games: gameLog(p.stats),
       position: POSITIONS[(p.defaultPositionId ?? 0) - 1] ?? '',
       proTeam: PRO_TEAMS[p.proTeamId] ?? '',
       injury: INJURY[p.injuryStatus] ?? (p.injuryStatus ? String(p.injuryStatus).replace(/_/g, ' ').toLowerCase() : 'Healthy'),
@@ -375,9 +408,9 @@ export function clearCardCache() {
   cardCache = { key: '', at: 0, value: null };
 }
 
-export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.now(), ...deps } = {}) {
+export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.now(), games = 1, ...deps } = {}) {
   if (ids.length === 0) return new Map();
-  const key = `${cfg.leagueId}:${cfg.season}:${[...ids].sort((a, b) => a - b).join(',')}`;
+  const key = `${cfg.leagueId}:${cfg.season}:${games}:${[...ids].sort((a, b) => a - b).join(',')}`;
   if (ttlMs > 0 && cardCache.key === key && now - cardCache.at < ttlMs) return cardCache.value;
   const year = cfg.season;
   const json = await get(cfg, {
@@ -386,10 +419,12 @@ export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.n
       players: {
         filterIds: { value: ids },
         // The first number is how many recent scoring periods to include
-        // game-by-game, which a card does not need. The ids are the splits it
-        // does: season total, projected, last 7/15/30, and last season's total.
+        // game-by-game: 1 for the trade panel, which has no use for them, and
+        // more when a chart is going to be drawn. The ids are the splits a
+        // card does need: season total, projected, last 7/15/30, and last
+        // season's total.
         filterStatsForTopScoringPeriodIds: {
-          value: 1,
+          value: games,
           additionalValue: [`00${year}`, `10${year}`, `01${year}`, `02${year}`, `03${year}`, `00${year - 1}`],
         },
       },
@@ -540,9 +575,8 @@ export async function diagnose(cfg, playerId, { fetchImpl = fetch, ...deps } = {
     const p = entry?.player ?? entry?.playerPoolEntry?.player ?? entry;
     if (!p) throw new Error('no player came back');
     const stats = Array.isArray(p.stats) ? p.stats : [];
-    const SPLIT = new Set(['00', '01', '02', '03', '10']);
-    const splits = stats.filter((x) => SPLIT.has(String(x.id).slice(0, 2)));
-    const logs = stats.filter((x) => !SPLIT.has(String(x.id).slice(0, 2)));
+    const splits = stats.filter((x) => SPLIT_PREFIXES.has(String(x.id).slice(0, 2)));
+    const logs = stats.filter((x) => !SPLIT_PREFIXES.has(String(x.id).slice(0, 2)));
     return {
       name: p.fullName ?? null,
       entryKeys: keysOf(entry),

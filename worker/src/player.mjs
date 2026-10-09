@@ -53,36 +53,16 @@ function trend(base, recent, cat) {
   return better ? ARROW_UP : ARROW_DOWN;
 }
 
-/** The public /player card. `cats` are the categories this league scores. */
-export function playerMessage({ card, owner = null, bio = null, cats = CATEGORIES }) {
-  const lines = [
-    `**${tidy(card.name)}** — ${[card.position, card.proTeam, card.injury].filter(Boolean).join(' · ')}`,
-  ];
-
-  const facts = [];
-  if (card.rank) facts.push(`ESPN rank #${card.rank}`);
-  if (card.owned !== null && card.owned !== undefined) facts.push(`owned in ${Math.round(card.owned)}% of leagues`);
-  facts.push(owner ? `on **${tidy(owner)}** in your league` : 'not on a team in your league');
-  lines.push(facts.join(' · '));
-
-  if (bio) {
-    const parts = [
-      [bio.height, bio.weight].filter(Boolean).join(', '),
-      bio.age !== null && bio.age !== undefined ? `age ${bio.age}` : '',
-      bio.college ?? '',
-      bio.experience !== null && bio.experience !== undefined ? `${bio.experience} yrs in the league` : '',
-    ].filter(Boolean);
-    if (parts.length) lines.push(parts.join(' · '));
-  }
-
+/**
+ * The per-game table for a card, as monospace rows, plus what it is showing.
+ *
+ * Once he has played: season, last 15 and last 7, with an arrow comparing the
+ * last 7 to the season. Before that: ESPN's projection beside last season.
+ * Null when there is nothing to show.
+ */
+export function statsTable(card, cats = CATEGORIES) {
   const { line: base, label } = bestLine(card);
-  if (!base) {
-    lines.push('', 'No stats yet. ESPN has no games or projection for him.');
-    return lines.join('\n');
-  }
-
-  // Columns: once he has played, season / last 15 / last 7; before that, the
-  // projection and last season side by side.
+  if (!base) return null;
   const played = label === 'this season';
   const columns = played
     ? [['Season', card.stats.season], ['Last 15', card.stats.last15], ['Last 7', card.stats.last7]]
@@ -91,22 +71,99 @@ export function playerMessage({ card, owner = null, bio = null, cats = CATEGORIE
   const l7 = played ? card.stats.last7 : null;
 
   const widths = [5, 9, 9, 8];
-  const rows = [['', ...shown.map(([t]) => t)].map((h, i) => h.padEnd(widths[i])).join('')];
+  const rows = [['', ...shown.map(([t]) => t)].map((h, i) => h.padEnd(widths[i])).join('').trimEnd()];
   for (const cat of cats) {
     const cells = [cat.label, ...shown.map(([, line]) => show(line[cat.key], cat))];
     let row = cells.map((c, i) => String(c).padEnd(widths[i])).join('');
     if (l7) row += trend(base[cat.key], l7[cat.key], cat);
-    rows.push(row);
+    rows.push(row.trimEnd());
   }
-  lines.push('```', ...rows, '```');
-  lines.push(
-    played
-      ? `Per game, ${base.gp ?? '?'} games this season. Arrows compare the last 7 games to the season.`
-      : label === 'projected'
-        ? 'No games played yet this season, so this shows ESPN\'s projection beside last season.'
-        : 'Showing last season: no games played yet this season and no projection.'
+  const note = played
+    ? `Per game, ${base.gp ?? '?'} games this season. Arrows compare the last 7 games to the season.`
+    : label === 'projected'
+      ? 'No games yet this season: ESPN\'s projection beside last season.'
+      : 'No games yet this season and no projection: showing last season.';
+  return { rows, note, label, played };
+}
+
+/** ESPN's headshot for a player. If one is missing Discord just shows none. */
+export const headshotUrl = (id) => `https://a.espncdn.com/i/headshots/nba/players/full/${id}.png`;
+
+/** The colour down the side of the card: how healthy he is. */
+export function statusColor(injury) {
+  const s = String(injury ?? '').toLowerCase();
+  if (s === 'healthy') return 0x2f9e6a;
+  if (/day|questionable|doubtful|probable/.test(s)) return 0xd99a2b;
+  if (/out|injured|suspend/.test(s)) return 0xd1495b;
+  return 0x5b6270;
+}
+
+/**
+ * The games to chart and a title for them, or null when there are too few.
+ * `season` is the one being played, so last season's games are named as such
+ * rather than passed off as recent form.
+ */
+export function chartData(card, cats = CATEGORIES, season = null) {
+  const cat = cats.find((c) => !c.pct) ?? CATEGORIES[0];
+  const games = (card.games ?? []).filter((g) => typeof g[cat.key] === 'number');
+  if (games.length < 3) return null;
+  const last = games.at(-1).season;
+  const when = last == null || season == null || last === season
+    ? `last ${games.length} games`
+    : `last ${games.length} games of ${last - 1}-${String(last).slice(-2)}`;
+  return {
+    title: `${tidy(card.name)} — ${cat.name}, ${when}`,
+    values: games.map((g) => g[cat.key]),
+  };
+}
+
+/**
+ * The /player card as a Discord embed: status colour, headshot, the facts as
+ * fields, the per-game table, and the chart (when there is one) as the image.
+ *
+ * Every string a user or ESPN supplied goes through tidy, and the table sits
+ * in a code block that tidy keeps free of stray backticks.
+ */
+export function playerEmbed({ card, owner = null, bio = null, cats = CATEGORIES, chartUrl = null }) {
+  const description = [
+    [card.position, card.proTeam, card.jersey ? `#${card.jersey}` : null].filter(Boolean).join(' · '),
+    `**${tidy(card.injury || 'Healthy')}**`,
+  ].filter(Boolean).join('\n');
+
+  const fields = [
+    { name: 'ESPN rank', value: card.rank ? `#${card.rank}` : '—', inline: true },
+    { name: 'Owned', value: card.owned != null ? `${Math.round(card.owned)}%` : '—', inline: true },
+    { name: 'In your league', value: owner ? tidy(owner, 60) : 'Free agent', inline: true },
+  ];
+
+  if (bio) {
+    const parts = [
+      [bio.height, bio.weight].filter(Boolean).join(', '),
+      bio.age != null ? `age ${bio.age}` : '',
+      bio.college ?? '',
+      bio.experience != null ? `${bio.experience} yrs in the league` : '',
+    ].filter(Boolean).map((x) => tidy(x, 60));
+    if (parts.length) fields.push({ name: 'Bio', value: parts.join(' · '), inline: false });
+  }
+
+  const table = statsTable(card, cats);
+  fields.push(
+    table
+      ? { name: 'Per game', value: ['```', ...table.rows, '```'].join('\n'), inline: false }
+      : { name: 'Per game', value: 'No games or projection from ESPN yet.', inline: false }
   );
-  return lines.join('\n');
+
+  const embed = {
+    title: tidy(card.name, 120),
+    url: `https://www.espn.com/nba/player/_/id/${card.id}`,
+    color: statusColor(card.injury),
+    description,
+    thumbnail: { url: headshotUrl(card.id) },
+    fields,
+  };
+  if (chartUrl) embed.image = { url: chartUrl };
+  if (table) embed.footer = { text: table.note };
+  return embed;
 }
 
 /** Counting stats added up across a side, with null counted as zero. */

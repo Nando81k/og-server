@@ -10,11 +10,13 @@
 
 import {
   parsePlayerCards, fetchPlayerCards, clearCardCache, fetchBio,
-  parseRosters, categoriesFrom, CATEGORIES, searchPlayers, clearSearchCache,
+  parseRosters, categoriesFrom, CATEGORIES, searchPlayers, clearSearchCache, gameLog,
 } from './fantasy.mjs';
 import {
-  show, bestLine, playerMessage, totals, netFor, sideTable, netBlock, tidy,
+  show, bestLine, totals, netFor, sideTable, netBlock, tidy,
+  statsTable, playerEmbed, statusColor, headshotUrl, chartData,
 } from './player.mjs';
+import { areaChartUrl, QUICKCHART, MAX_URL } from './chart.mjs';
 import {
   exploreMessage, exploreComponents, parseExploreId, voteComponents,
 } from './trade.mjs';
@@ -34,6 +36,12 @@ const avg = (pts, reb, ast, stl, blk, tpm, fg, ft, to, min, gp) => ({
 });
 const splitOf = (id, a) => ({ seasonId: 2027, id, scoringPeriodId: 0, averageStats: a, stats: { '42': a['42'] } });
 
+const gameRow = (id, season, period, pts, reb = 8, ast = 2) => ({
+  id, seasonId: season, scoringPeriodId: period,
+  stats: { '0': pts, '6': reb, '3': ast, '2': 1, '1': 0, '17': 2, '11': 3, '40': 30 },
+});
+const valePts = [14, 22, 19, 17, 24, 12, 20, 18, 26, 15, 21, 19, 23, 16, 22];
+
 const raw = (id, name, extra) => ({
   id,
   player: { id, fullName: name, defaultPositionId: 5, proTeamId: 13, injuryStatus: 'ACTIVE', stats: [], ...extra },
@@ -41,6 +49,7 @@ const raw = (id, name, extra) => ({
 const payload = {
   players: [
     raw(100, 'Marcus Vale', {
+      jersey: '13',
       ownership: { percentOwned: 97.2 },
       draftRanksByRankType: { STANDARD: { rank: 34 } },
       stats: [
@@ -49,12 +58,16 @@ const payload = {
         splitOf('012027', avg(21.0, 11.3, 1.7, 0.9, 2.4, 0.2, 0.592, 0.650, 2.3, 32.0, 7)),
         splitOf('032027', avg(18.9, 10.4, 2.0, 0.8, 2.0, 0.3, 0.575, 0.680, 2.1, 31.5, 30)),
         splitOf('002026', avg(17.5, 9.6, 2.0, 0.7, 1.7, 0.3, 0.560, 0.690, 1.9, 30.1, 70)),
+        ...valePts.map((pts, i) => gameRow(`05401811${String(i).padStart(3, '0')}`, 2027, 100 + i, pts)),
       ],
     }),
     // Has not played this season: only last season's line exists.
     raw(101, 'Jules Okafor', {
       defaultPositionId: 3,
-      stats: [splitOf('002026', avg(11.0, 4.8, 2.0, 1.0, 0.4, 1.2, 0.462, 0.811, 1.1, 27.4, 58))],
+      stats: [
+        splitOf('002026', avg(11.0, 4.8, 2.0, 1.0, 0.4, 1.2, 0.462, 0.811, 1.1, 27.4, 58)),
+        ...[8, 12, 10, 14, 9].map((pts, i) => gameRow(`05400000${i}`, 2026, 50 + i, pts)),
+      ],
     }),
     raw(200, 'Theo Brandt', {
       defaultPositionId: 1, proTeamId: 18, injuryStatus: 'DAY_TO_DAY',
@@ -134,7 +147,16 @@ await fetchPlayerCards(cfg, [100], { fetchImpl: fakeFetch(payload), now: Date.no
 check('an old entry is fetched again', calls.length === 3);
 await fetchPlayerCards(cfg, [100], { fetchImpl: fakeFetch(payload), ttlMs: 0 });
 check('ttl 0 always fetches', calls.length === 4);
-check('no ids means no request', (await fetchPlayerCards(cfg, [], { fetchImpl: fakeFetch(payload) })).size === 0 && calls.length === 4);
+clearCardCache();
+const before = calls.length;
+await fetchPlayerCards(cfg, [100], { fetchImpl: fakeFetch(payload), games: 15 });
+const g15 = JSON.parse(calls.at(-1).headers['x-fantasy-filter']).players.filterStatsForTopScoringPeriodIds.value;
+check('asks for fifteen games when a chart is wanted', g15 === 15 && calls.length === before + 1);
+await fetchPlayerCards(cfg, [100], { fetchImpl: fakeFetch(payload) });
+check('a card fetched without games is not served from the one with games', calls.length === before + 2);
+check('and the trade panel still asks for none', JSON.parse(calls.at(-1).headers['x-fantasy-filter']).players.filterStatsForTopScoringPeriodIds.value === 1);
+const callsNow = calls.length;
+check('no ids means no request', (await fetchPlayerCards(cfg, [], { fetchImpl: fakeFetch(payload) })).size === 0 && calls.length === callsNow);
 let msg = '';
 clearCardCache();
 try { await fetchPlayerCards(cfg, [100], { fetchImpl: fakeFetch({}, 401) }); } catch (e) { msg = e.message; }
@@ -166,40 +188,116 @@ check('best line is last season when there is no projection', bestLine(cards.get
 check('best line is nothing for a player with no stats', bestLine(cards.get(999)).line === null);
 check('best line copes with a missing card', bestLine(undefined).line === null);
 
+console.log('\n--- game logs ---');
+const row = (id, period, pts, extra = {}) => ({ id, seasonId: 2027, scoringPeriodId: period, stats: { '0': pts, '6': 5 }, ...extra });
+check('the card carries the games, oldest first', vale.games.length === 15 && vale.games.map((g) => g.pts).join() === valePts.join());
+check('each game has its numbers and season', vale.games[0].reb === 8 && vale.games[0].season === 2027 && vale.games[0].period === 100);
+check('a player with no logs has none', cards.get(150).games.length === 0 && cards.get(999).games.length === 0);
+check('last season\'s games are kept as such', cards.get(101).games.length === 5 && cards.get(101).games[0].season === 2026);
+check('the jersey is read', vale.jersey === '13' && cards.get(101).jersey === null);
+check('windows are not mistaken for games', gameLog([{ id: '002027', stats: { '0': 9 } }, { id: '102027', stats: { '0': 9 } }, { id: '012027', stats: { '0': 9 } }]).length === 0);
+check('sorted by scoring period when every game has one', gameLog([row('a1', 3, 30), row('a2', 1, 10), row('a3', 2, 20)]).map((g) => g.pts).join() === '10,20,30');
+check('left in ESPN\'s order when one has no period', gameLog([row('a1', 3, 30), row('a2', null, 10, { scoringPeriodId: undefined }), row('a3', 2, 20)]).map((g) => g.pts).join() === '30,10,20');
+check('only the most recent fifteen', gameLog(Array.from({ length: 20 }, (_, i) => row(`b${i}`, i, i))).length === 15 && gameLog(Array.from({ length: 20 }, (_, i) => row(`b${i}`, i, i))).at(-1).pts === 19);
+check('entries with no points are skipped', gameLog([row('c1', 1, 10), { id: 'c2', stats: {} }, { id: 'c3' }]).length === 1);
+check('no stats at all is no games', gameLog(undefined).length === 0 && gameLog(null).length === 0);
+check('a missing stat in a game is null, not zero', gameLog([row('d1', 1, 10)])[0].ast === null);
+
 console.log('\n--- the /player card ---');
-let text = playerMessage({ card: vale, owner: 'Ya Soul Is MIINNNEEEE', bio });
-check('headline has name, position, team and status', text.startsWith('**Marcus Vale** — C · LAL · Healthy'));
-check('shows rank, ownership and the owner in your league',
-  text.includes('ESPN rank #34') && text.includes('owned in 97% of leagues') && text.includes('on **Ya Soul Is MIINNNEEEE** in your league'));
-check('shows the bio', text.includes("6' 11\", 245 lbs") && text.includes('age 26') && text.includes('Northern State') && text.includes('5 yrs in the league'));
+const flat = (e) => [e.title, e.description, ...(e.fields ?? []).flatMap((f) => [f.name, f.value]), e.footer?.text ?? ''].join('\n');
+const field = (e, name) => e.fields.find((f) => f.name === name)?.value;
+const size = (e) => flat(e).length;
+let emb = playerEmbed({ card: vale, owner: 'Ya Soul Is MIINNNEEEE', bio });
+let text = flat(emb);
+check('the title is the player\'s name and links to ESPN', emb.title === 'Marcus Vale' && emb.url === 'https://www.espn.com/nba/player/_/id/100');
+check('the description has position, team, jersey and status', emb.description.includes('C · LAL · #13') && emb.description.includes('**Healthy**'));
+check('rank, ownership and the league team are fields', field(emb, 'ESPN rank') === '#34' && field(emb, 'Owned') === '97%' && field(emb, 'In your league') === 'Ya Soul Is MIINNNEEEE');
+check('those three sit side by side', emb.fields.slice(0, 3).every((f) => f.inline === true));
+check('the bio is a field', field(emb, 'Bio').includes("6' 11\", 245 lbs") && field(emb, 'Bio').includes('age 26') && field(emb, 'Bio').includes('Northern State') && field(emb, 'Bio').includes('5 yrs in the league'));
 check('a table of the nine categories',
-  ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%', 'TO'].every((c) => new RegExp(`^${c.replace('%', '%')}\\s`, 'm').test(text)));
+  ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%', 'TO'].every((c) => new RegExp(`^${c}\\s`, 'm').test(field(emb, 'Per game'))));
 check('columns are season, last 15, last 7', /Season\s+Last 15\s+Last 7/.test(text));
 check('values line up in their rows', /^PTS\s+18\.4\s+19\.2\s+21\.0/m.test(text) && /^FG%\s+\.571\s+\.580\s+\.592/m.test(text));
 check('a rising stat is marked up', /^PTS .*↑$/m.test(text));
 check('a falling stat is marked down', /^AST .*↓$/m.test(text));
 check('more turnovers is marked down, not up', /^TO .*↓$/m.test(text));
-check('the table is a code block', (text.match(/```/g) ?? []).length === 2);
-check('the footnote says how many games', text.includes('61 games this season'));
-check('fits Discord\'s 2000', text.length < 2000);
-text = playerMessage({ card: vale, owner: null, bio: null });
-check('not on a team says so', text.includes('not on a team in your league'));
-check('no bio, no bio line', !text.includes('age '));
-text = playerMessage({ card: cards.get(101), owner: 'T', bio: null });
-check('before opening night it shows last season', /Last yr/.test(text) && text.includes('Showing last season'));
-check('and offers no recent columns', !text.includes('Last 15') && !text.includes('Last 7'));
-check('and still has the numbers', /^PTS\s+11\.0/m.test(text));
-text = playerMessage({ card: cards.get(150), owner: null, bio: null });
-check('before the season it shows the projection beside last season', /Proj\.\s+Last yr/.test(text) && /^PTS\s+15\.5\s+13\.0/m.test(text));
-check('and says so', text.includes('ESPN\'s projection'));
-check('with no arrows, since there is nothing recent to compare', !/[↑↓→]/.test(text));
-check('and no recent-games columns', !text.includes('Last 15') && !text.includes('Last 7'));
-text = playerMessage({ card: cards.get(999), owner: null, bio: null });
-check('no stats says so rather than printing zeros', text.includes('No stats yet') && !text.includes('```'));
-check('a rookie with no rank prints no rank', !text.includes('ESPN rank'));
-check('a name with a backtick cannot break out', !playerMessage({ card: { ...vale, name: 'a`b' }, owner: 'x`y' }).includes('a`b'));
+check('the table is its own code block', field(emb, 'Per game').startsWith('```') && field(emb, 'Per game').endsWith('```') && (field(emb, 'Per game').match(/```/g) ?? []).length === 2);
+check('the footer says how many games', emb.footer.text.includes('61 games this season'));
+check('there is a headshot', emb.thumbnail.url === headshotUrl(100) && headshotUrl(100) === 'https://a.espncdn.com/i/headshots/nba/players/full/100.png');
+check('healthy is green', emb.color === 0x2f9e6a);
+check('no chart means no image', emb.image === undefined);
+emb = playerEmbed({ card: vale, chartUrl: 'https://quickchart.io/chart?x=1' });
+check('a chart becomes the embed\'s image', emb.image.url === 'https://quickchart.io/chart?x=1');
+check('inside Discord\'s embed limits',
+  size(emb) < 6000 && emb.fields.every((f) => f.name.length <= 256 && f.value.length <= 1024) && emb.fields.length <= 25 && emb.title.length <= 256 && emb.description.length <= 4096 && emb.footer.text.length <= 2048);
+emb = playerEmbed({ card: vale, owner: null, bio: null });
+check('not on a team says free agent', field(emb, 'In your league') === 'Free agent');
+check('no bio, no bio field', field(emb, 'Bio') === undefined);
+emb = playerEmbed({ card: cards.get(101), owner: 'T', bio: null });
+check('before opening night it shows last season', /Last yr/.test(flat(emb)) && emb.footer.text.includes('showing last season'));
+check('and offers no recent columns', !flat(emb).includes('Last 15') && !flat(emb).includes('Last 7'));
+check('and still has the numbers', /^PTS\s+11\.0/m.test(flat(emb)));
+emb = playerEmbed({ card: cards.get(150), owner: null, bio: null });
+check('before the season it shows the projection beside last season', /Proj\.\s+Last yr/.test(flat(emb)) && /^PTS\s+15\.5\s+13\.0/m.test(flat(emb)));
+check('and says so', emb.footer.text.includes('ESPN\'s projection'));
+check('with no arrows, since there is nothing recent to compare', !/[↑↓→]/.test(field(emb, 'Per game')));
+check('and no recent-games columns', !flat(emb).includes('Last 15') && !flat(emb).includes('Last 7'));
+emb = playerEmbed({ card: cards.get(999), owner: null, bio: null });
+check('no stats says so rather than printing zeros', field(emb, 'Per game').includes('No games or projection') && !field(emb, 'Per game').includes('```'));
+check('a rookie with no rank shows a dash', field(emb, 'ESPN rank') === '—' && field(emb, 'Owned') === '—');
+check('and has no footer', emb.footer === undefined);
+emb = playerEmbed({ card: { ...vale, name: 'a`b', jersey: null }, owner: 'x`y' });
+check('a backtick in a name cannot break out', !flat(emb).replace(/```/g, '').includes('`'));
+check('no jersey, no number', !emb.description.includes('#'));
+check('status colours: healthy green, day-to-day amber, out red, unknown grey',
+  statusColor('Healthy') === 0x2f9e6a && statusColor('Day-to-day') === 0xd99a2b && statusColor('Out') === 0xd1495b && statusColor('Injured reserve') === 0xd1495b && statusColor('???') === 0x5b6270);
+check('a real card for a day-to-day player is amber', playerEmbed({ card: cards.get(200) }).color === 0xd99a2b);
+const tbl = statsTable(vale);
+check('statsTable reports what it shows', tbl.played === true && tbl.label === 'this season' && tbl.rows.length === 10);
+check('and nothing for a player without stats', statsTable(cards.get(999)) === null);
+check('its rows carry no trailing spaces', statsTable(vale).rows.every((r) => r === r.trimEnd()));
+
+console.log('\n--- the chart data ---');
+let cd = chartData(vale, CATEGORIES, 2027);
+check('charts points by default', cd.values.join() === valePts.join() && cd.title === 'Marcus Vale — Points, last 15 games');
+cd = chartData(cards.get(101), CATEGORIES, 2027);
+check('before the season, last season\'s games are named as such', cd.values.join() === '8,12,10,14,9' && cd.title === 'Jules Okafor — Points, last 5 games of 2025-26');
+check('too few games means no chart', chartData({ ...vale, games: vale.games.slice(0, 2) }, CATEGORIES, 2027) === null);
+const old = { ...cards.get(101), games: Array.from({ length: 6 }, (_, i) => ({ season: 2026, pts: 10 + i })) };
+check('last season\'s games are named as such', chartData(old, CATEGORIES, 2027).title === 'Marcus Vale — Points, last 6 games of 2025-26'.replace('Marcus Vale', 'Jules Okafor'));
+check('with no season to compare it just says recent', chartData(old, CATEGORIES, null).title.endsWith('last 6 games'));
+check('a league without points charts its first counting stat', chartData({ ...vale, games: vale.games.map((g) => ({ ...g, reb: 7 })) }, categoriesFrom(['reb', 'fg']), 2027).title.includes('Rebounds'));
+check('a card with no games has no chart', chartData(cards.get(999), CATEGORIES, 2027) === null && chartData({ name: 'x' }, CATEGORIES, 2027) === null);
+
+console.log('\n--- the chart image ---');
+const url = areaChartUrl({ title: 'Marcus Vale — Points, last 15 games', values: valePts });
+const cfgOf = (u) => JSON.parse(decodeURIComponent(u.split('&c=')[1]));
+check('it is a QuickChart URL', url.startsWith(`${QUICKCHART}?`));
+check('pinned to a Chart.js version so the syntax stays valid', url.includes('v=2.9.4'));
+check('with a dark background to match Discord', url.includes('bkg=%231b1d21'));
+check('short enough for Discord', url.length <= MAX_URL);
+let c = cfgOf(url);
+check('an area chart: a filled line', c.type === 'line' && c.data.datasets[0].fill === true && /rgba/.test(c.data.datasets[0].backgroundColor));
+check('with one point per game', c.data.datasets[0].data.join() === valePts.join() && c.data.labels.length === 15);
+check('and the average as a dashed line', c.data.datasets[1].data.every((v) => v === 19.2) && c.data.datasets[1].borderDash.length === 2 && c.data.datasets[1].fill === false);
+check('titled', c.options.title.text === 'Marcus Vale — Points, last 15 games');
+check('starting from zero', c.options.scales.yAxes[0].ticks.beginAtZero === true);
+check('too few games draws nothing', areaChartUrl({ title: 't', values: [1, 2] }) === null);
+check('non-numbers are ignored', areaChartUrl({ title: 't', values: [1, null, 2, NaN, undefined] }) === null);
+check('values are rounded for a shorter URL', cfgOf(areaChartUrl({ title: 't', values: [1.2345, 2.3456, 3.4567] })).data.datasets[0].data.join() === '1.2,2.3,3.5');
+const counts = new Set();
+let sawNull = false;
+for (let n = 0; n <= 1500; n += 25) {
+  const u = areaChartUrl({ title: 'x'.repeat(n), values: valePts });
+  if (u === null) { sawNull = true; continue; }
+  counts.add(cfgOf(u).data.datasets.length);
+  if (u.length > MAX_URL) counts.add('TOO LONG');
+}
+check('a long title drops the average line before giving up', counts.has(2) && counts.has(1));
+check('and an absurd one gives up rather than overflow', sawNull && !counts.has('TOO LONG'));
 
 console.log('\n--- adding up a trade ---');
+
 const L = (id) => ({ card: cards.get(id), ...bestLine(cards.get(id)) });
 const giving = [L(100), L(101)];
 const getting = [L(200)];
@@ -292,25 +390,37 @@ const NOW = Date.parse('2027-01-01T12:00:00Z');
 console.log('\n--- /player ---');
 {
   const env = env0();
+  const asked = [];
   const run = (name, deps = {}) => handlePlayer({ data: { name: 'player', options: [{ name: 'name', value: name }] }, member: who('u1') }, env,
-    { fetchRosters: stubRosters, fetchCards: stubCards, fetchBio: async () => bio, ...deps });
+    { fetchRosters: stubRosters, fetchCards: async (c, ids, o) => { asked.push(o); return cards; }, fetchBio: async () => bio, ...deps });
+  const flatE = (o) => [o.embeds[0].title, o.embeds[0].description, ...o.embeds[0].fields.flatMap((f) => [f.name, f.value]), o.embeds[0].footer?.text ?? ''].join('\n');
+  const fld = (o, name) => o.embeds[0].fields.find((f) => f.name === name)?.value;
   let out = await run('100');
-  check('replies publicly with the card', !out.flags && out.content.startsWith('**Marcus Vale**'));
-  check('names who owns him in the league', out.content.includes('on **Fernando\'s Fantastic Team** in your league'));
-  check('includes the bio', out.content.includes('Northern State'));
+  check('replies publicly with an embed', !out.flags && out.embeds.length === 1 && out.embeds[0].title === 'Marcus Vale');
+  check('and no plain text beside it', out.content === undefined);
+  check('names who owns him in the league', fld(out, 'In your league') === 'Fernando\'s Fantastic Team');
+  check('includes the bio', fld(out, 'Bio').includes('Northern State'));
   check('pings nobody', out.allowed_mentions.parse.length === 0);
+  check('asks for his recent games so there is something to chart', asked[0].games === 15);
+  check('draws the chart as the embed image', out.embeds[0].image.url.startsWith(QUICKCHART));
+  check('titled with his name and what it shows', decodeURIComponent(out.embeds[0].image.url).includes('Marcus Vale — Points, last 15 games'));
+  out = await run('150');
+  check('a player with no games gets no chart image', out.embeds[0].image === undefined && out.embeds[0].title === 'Pat Proj');
+  check('but still the projection', /Proj\./.test(flatE(out)));
   out = await run('999');
-  check('a player on no team says so', out.content.includes('not on a team in your league'));
+  check('a player on no team is a free agent', fld(out, 'In your league') === 'Free agent');
   out = await run('12345');
   check('a player ESPN has no card for is reported privately', out.flags === 64 && out.content.includes('no card'));
   out = await run('Marcus Vale');
   check('a typed name (not picked from the list) is refused', out.flags === 64 && out.content.includes('from the list'));
   out = await run('100', { fetchBio: async () => null });
-  check('a missing bio does not stop the card', out.content.includes('**Marcus Vale**') && !out.content.includes('age '));
+  check('a missing bio does not stop the card', out.embeds[0].title === 'Marcus Vale' && fld(out, 'Bio') === undefined);
   out = await run('100', { fetchCards: async () => { throw new Error('ESPN 503'); } });
   check('an ESPN failure is private, not a crash', out.flags === 64 && out.content.includes('ESPN 503'));
   out = await handlePlayer({ data: { name: 'player', options: [{ name: 'name', value: '100' }] } }, {}, {});
   check('before setup, says so privately', out.flags === 64 && out.content.includes('not been connected'));
+  out = await run('101');
+  check('last season\'s games are charted as last season\'s', decodeURIComponent(out.embeds[0].image.url).includes('last 5 games of 2025-26'));
 }
 
 console.log('\n--- /player autocomplete ---');
@@ -418,10 +528,11 @@ check('and keeps the display order', eightCats.map((c) => c.label).join() === 'P
 check('unknown means all nine', categoriesFrom(null) === CATEGORIES && categoriesFrom([]).length === 9);
 check('keys it does not recognise fall back to all nine', categoriesFrom(['bogus']).length === 9);
 
-let card8 = playerMessage({ card: vale, owner: null, bio: null, cats: eightCats });
+const flatEmbed = (e) => [e.title, e.description, ...(e.fields ?? []).flatMap((f) => [f.name, f.value]), e.footer?.text ?? ''].join('\n');
+let card8 = flatEmbed(playerEmbed({ card: vale, owner: null, bio: null, cats: eightCats }));
 check('the /player card leaves out an unscored category', !/^TO\s/m.test(card8) && /^FT%\s/m.test(card8));
 check('and still has the scored ones', ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%'].every((c) => new RegExp(`^${c.replace('%', '%')}\\s`, 'm').test(card8)));
-check('by default it still shows all nine', /^TO\s/m.test(playerMessage({ card: vale })));
+check('by default it still shows all nine', /^TO\s/m.test(flatEmbed(playerEmbed({ card: vale }))));
 check('totals follow the league\'s categories', !('to' in totals([L(100)], eightCats)) && 'pts' in totals([L(100)], eightCats));
 check('so does the net', netFor(giving, getting, eightCats).every((n) => n.key !== 'to') && netFor(giving, getting, eightCats).length === 6);
 check('and the side tables', !/^TO\s/m.test(sideTable('x', giving, eightCats)) && /^FT%\s/m.test(sideTable('x', giving, eightCats)));
@@ -510,7 +621,8 @@ console.log('\n--- the panel and the card use the league\'s categories ---');
   check('settings without categories also show everything', /^TO\s/m.test(out.data.content));
   const pOut = await handlePlayer({ data: { name: 'player', options: [{ name: 'name', value: '100' }] }, member: who('u1') }, env,
     { fetchRosters: async () => cats8, fetchCards: stubCards, fetchBio: async () => null });
-  check('/player follows the league', !/^TO\s/m.test(pOut.content) && /^FT%\s/m.test(pOut.content));
+  const pFlat = flatEmbed(pOut.embeds[0]);
+  check('/player follows the league', !/^TO\s/m.test(pFlat) && /^FT%\s/m.test(pFlat));
 }
 
 console.log('\n--- the command definition ---');

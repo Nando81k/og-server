@@ -479,6 +479,106 @@ export async function fetchDraftPool(cfg, { limit = 250, ...deps } = {}) {
     .sort((a, b) => a.adp - b.adp || a.id - b.id);
 }
 
+// The pool barely moves while a draft is on, and the live board needs it every
+// minute (for names and for "best available"), so it is kept for a quarter of
+// an hour.
+let poolCache = { key: '', at: 0, value: null };
+
+export function clearPoolCache() {
+  poolCache = { key: '', at: 0, value: null };
+}
+
+export async function fetchDraftPoolCached(cfg, { ttlMs = 900_000, now = Date.now(), ...deps } = {}) {
+  const key = `${cfg.leagueId}:${cfg.season}`;
+  if (ttlMs > 0 && poolCache.key === key && now - poolCache.at < ttlMs) return poolCache.value;
+  const value = await fetchDraftPool(cfg, deps);
+  if (ttlMs > 0) poolCache = { key, at: now, value };
+  return value;
+}
+
+/**
+ * The league's real draft, as ESPN reports it (the mDraftDetail view).
+ *
+ * `draftDetail.picks` has one entry per pick made, but only the player's id:
+ * names come from the pool, or from a lookup by id for anyone outside it. The
+ * pick order is `settings.draftSettings.pickOrder` (team ids). ESPN does not
+ * say when the current pick's clock ends, so the board shows the length of a
+ * pick, not a countdown. The number of rounds is not stated either; it is the
+ * count of roster slots, which a mod can override with `/draft live rounds:`.
+ * None of this has been confirmed against a live draft: /fantasy debug reports
+ * what ESPN actually sends.
+ */
+export function parseLiveDraft(json) {
+  const detail = json?.draftDetail;
+  if (!detail || typeof detail !== 'object') throw new Error('Malformed payload: missing draftDetail');
+  const settings = json.settings?.draftSettings ?? {};
+  const picks = (Array.isArray(detail.picks) ? detail.picks : [])
+    .filter((p) => p.playerId !== undefined && p.teamId !== undefined)
+    .map((p, i) => ({
+      pickNo: Number(p.overallPickNumber) || i + 1,
+      round: Number(p.roundId) || null,
+      teamId: p.teamId,
+      playerId: p.playerId,
+      auto: Boolean(p.autoDraftTypeId),
+      keeper: Boolean(p.keeper),
+    }))
+    .sort((a, b) => a.pickNo - b.pickNo);
+  const counts = json.settings?.rosterSettings?.lineupSlotCounts;
+  const slots = counts && typeof counts === 'object'
+    ? Object.values(counts).reduce((sum, n) => sum + (Number(n) || 0), 0)
+    : 0;
+  const phase = detail.drafted ? 'done' : detail.inProgress || picks.length ? 'live' : 'waiting';
+  return {
+    phase,
+    picks,
+    order: Array.isArray(settings.pickOrder) ? settings.pickOrder : [],
+    secondsPerPick: Number(settings.timePerSelection) || null,
+    date: typeof settings.date === 'number' && settings.date > 0 ? settings.date : null,
+    type: settings.type ?? null,
+    slots: slots > 0 ? slots : null,
+  };
+}
+
+let nameCache = new Map();
+
+export function clearNameCache() {
+  nameCache = new Map();
+}
+
+/**
+ * Fetch the league's draft and put names on the picks. `pool` is the draft
+ * pool (id, name, position, proTeam); anyone not in it is looked up by id once
+ * and remembered.
+ */
+export async function fetchLiveDraft(cfg, { pool = [], ...deps } = {}) {
+  const live = parseLiveDraft(
+    await get(cfg, { views: ['mDraftDetail', 'mSettings'], unwrap: true, ...deps })
+  );
+  const known = new Map(pool.map((p) => [p.id, p]));
+  const missing = [...new Set(live.picks.map((p) => p.playerId))].filter((id) => !known.has(id) && !nameCache.has(id));
+  if (missing.length) {
+    try {
+      const found = await fetchPlayerNames(cfg, missing, deps);
+      // An id ESPN does not return is remembered as unknown, so it is not
+      // asked for again every minute.
+      for (const id of missing) nameCache.set(id, found.get(id) ?? null);
+    } catch (err) {
+      // A pick with no name still belongs on the board.
+      console.warn(`Live draft: could not look up ${missing.length} player names: ${err.message}`);
+    }
+  }
+  live.picks = live.picks.map((p) => {
+    const k = known.get(p.playerId);
+    return {
+      ...p,
+      name: k?.name ?? nameCache.get(p.playerId) ?? `Player ${p.playerId}`,
+      position: k?.position ?? '',
+      proTeam: k?.proTeam ?? '',
+    };
+  });
+  return live;
+}
+
 // Autocomplete asks on every keystroke, and the same few prefixes repeat, so
 // recent searches are kept for a minute.
 let searchCache = new Map();
@@ -669,6 +769,12 @@ export async function diagnose(cfg, playerId, { fetchImpl = fetch, ...deps } = {
     return { count: pool.length, withAdp: pool.filter((p) => p.adp < 9999).length, first: pool[0]?.name ?? null };
   });
 
+  // What ESPN reports about the real draft: the live board is built on this.
+  await run('draft', async () => {
+    const d = parseLiveDraft(await get(cfg, { views: ['mDraftDetail', 'mSettings'], unwrap: true, fetchImpl, ...deps }));
+    return { phase: d.phase, picks: d.picks.length, order: d.order.length, secondsPerPick: d.secondsPerPick, date: d.date, slots: d.slots, type: d.type };
+  });
+
   await run('bio', async () => {
     const res = await fetchImpl(
       `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}`,
@@ -723,6 +829,14 @@ export function diagnosticMessage(facts) {
   const PL = facts.pool;
   if (PL) {
     out.push(`**Draft pool:** ${PL.count} players, ${PL.withAdp} with an ADP${PL.first ? `, best is ${PL.first}` : ''}`);
+  }
+  const D = facts.draft;
+  if (D) {
+    out.push(
+      `**Real draft:** ${D.phase}, ${D.picks} pick${D.picks === 1 ? '' : 's'} made · order ${D.order ? `of ${D.order} teams` : 'not set'}` +
+        ` · ${D.secondsPerPick ? `${D.secondsPerPick}s a pick` : 'no pick time'} · ${D.slots ? `${D.slots} roster slots (rounds)` : 'no roster slots'}` +
+        `${D.type ? ` · ${D.type}` : ''}${D.date ? ` · starts ${new Date(D.date).toISOString().slice(0, 16)}Z` : ''}`
+    );
   }
   const B = facts.bio;
   if (B) out.push(`**Bio page:** HTTP ${B.status} · has ${B.fields.length ? B.fields.join(', ') : 'nothing usable'}`);

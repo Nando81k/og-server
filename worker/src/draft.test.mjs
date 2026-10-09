@@ -549,16 +549,16 @@ console.log('\n--- the once-a-minute trigger ---');
 console.log('\n--- the command ---');
 const dc = COMMANDS.find((c) => c.name === 'draft');
 check('/draft is registered', Boolean(dc));
-check('with start, join, begin, pick and cancel', dc.options.map((o) => o.name).join() === 'start,join,begin,pick,cancel');
+check('with the practice commands and the live board', dc.options.map((o) => o.name).join() === 'start,join,begin,pick,cancel,live,live-off');
 check('every option is a subcommand', dc.options.every((o) => o.type === 1));
-check('mods are start, begin and cancel', DRAFT_MOD_ONLY.join() === 'start,begin,cancel');
+check('mods are start, begin, cancel and the live board', DRAFT_MOD_ONLY.join() === 'start,begin,cancel,live,live-off');
 const st = dc.options.find((o) => o.name === 'start');
 check('start takes optional rounds and clock with sane limits', st.options.map((o) => `${o.name}:${o.required}:${o.min_value}-${o.max_value}`).join() === 'rounds:false:1-20,clock:false:10-600');
 const pk = dc.options.find((o) => o.name === 'pick');
 check('pick takes one autocompleted player', pk.options.length === 1 && pk.options[0].autocomplete === true && pk.options[0].required === true);
 check('the description fits Discord\'s 100', [...dc.description].length <= 100 && dc.options.every((o) => [...o.description].length <= 100));
 const html = readFileSync(new URL('../../docs/handbook.html', import.meta.url), 'utf8');
-check('the handbook marks the mod ones MOD', ['start', 'begin', 'cancel'].every((s) => {
+check('the handbook marks the mod ones MOD', ['start', 'begin', 'cancel', 'live', 'live-off'].every((s) => {
   const at = html.indexOf(`/draft ${s}`);
   return html.slice(at, html.indexOf('<div class="cmd">', at)).includes('class="mod"');
 }));

@@ -27,7 +27,10 @@ const leagueBody = {
       scoringItems: [0, 6, 3, 2, 1, 17, 19, 20, 11].map((statId) => ({ statId, isReverseItem: statId === 11 })),
     },
     tradeSettings: { deadlineDate: Date.parse('2027-02-20T00:00:00Z'), revisionHours: 24, vetoVotesRequired: 4 },
+    draftSettings: { type: 'SNAKE', timePerSelection: 75, date: Date.parse('2027-10-20T23:00:00Z'), pickOrder: Array.from({ length: 10 }, (_, i) => i + 1) },
+    rosterSettings: { lineupSlotCounts: { 0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 11: 3, 12: 3 } },
   },
+  draftDetail: { drafted: false, inProgress: false, picks: [] },
 };
 const log = (id) => ({ id, seasonId: 2027, scoringPeriodId: 5, averageStats: { '0': 20 }, stats: { '0': 20 } });
 const cardBody = {
@@ -89,6 +92,7 @@ check('reads which bio fields exist', facts.bio.status === 200 && facts.bio.fiel
 
 check('probes the name search by surname', facts.search.term === 'Vale' && facts.search.count === 3 && facts.search.matched === true);
 check('probes the draft pool and how many have an ADP', facts.pool.count === 3 && facts.pool.withAdp === 2 && facts.pool.first === 'Marcus Vale');
+check('reads the real draft: not started, ten in the order, 75 seconds, thirteen slots', facts.draft.phase === 'waiting' && facts.draft.picks === 0 && facts.draft.order === 10 && facts.draft.secondsPerPick === 75 && facts.draft.slots === 13 && facts.draft.type === 'SNAKE');
 check('and lists who it found', facts.search.names.join() === 'Marcus Vale,Ned Vale,No Adp');
 
 console.log('\n--- what it asks ESPN for ---');
@@ -118,6 +122,7 @@ check('shows splits with the per-game marker', text.includes('002027*'));
 check('shows the game log verdict', text.includes('game logs: 15') && text.includes('per-game: yes'));
 check('shows the name search verdict', text.includes('**Name search:** "Vale" gave 3 results (Marcus Vale, Ned Vale, No Adp)'));
 check('shows the draft pool verdict', text.includes('**Draft pool:** 3 players, 2 with an ADP, best is Marcus Vale'));
+check('shows the real draft verdict', text.includes('**Real draft:** waiting, 0 picks made · order of 10 teams · 75s a pick · 13 roster slots (rounds) · SNAKE · starts 2027-10-20T23:00Z'));
 check('shows the bio verdict', text.includes('**Bio page:** HTTP 200 · has displayHeight'));
 check('has no failure section when nothing failed', !text.includes('Failed'));
 check('fits Discord\'s 2000', text.length <= 2000);
@@ -125,7 +130,7 @@ check('contains no cookie or token', !text.includes('secret-s2-value') && !text.
 
 console.log('\n--- when ESPN is not what we assumed ---');
 let f = await diagnose(cfg, 100, { fetchImpl: route({ league: 500 }) });
-check('one part failing does not stop the others', f.errors.length === 1 && f.errors[0].startsWith('league:') && f.card && f.bio);
+check('one part failing does not stop the others', f.errors.length === 2 && f.errors[0].startsWith('league:') && f.errors[1].startsWith('draft:') && f.card && f.bio);
 text = diagnosticMessage(f);
 check('the failure is reported', text.includes('**Failed:**') && text.includes('league:'));
 check('and the parts that worked are still shown', text.includes('Player card') && text.includes('Bio page'));
@@ -134,7 +139,7 @@ check('a 401 names the cookies', f.errors[0].includes('ESPN_S2'));
 f = await diagnose(cfg, 100, { fetchImpl: route({ bio: 404 }) });
 check('a missing bio page is a finding, not a failure', f.errors.length === 0 && f.bio.status === 404 && diagnosticMessage(f).includes('HTTP 404 · has nothing usable'));
 f = await diagnose(cfg, 100, { fetchImpl: async () => { throw new Error('network down'); } });
-check('everything failing still returns a report', f.errors.length === 5);
+check('everything failing still returns a report', f.errors.length === 6);
 let g = await diagnose(cfg, 100, { fetchImpl: route({ search: 500 }) });
 check('a search that fails does not stop the rest', g.errors.length === 2 && g.errors[0].startsWith('search:') && g.errors[1].startsWith('pool:') && g.card && g.bio);
 g = await diagnose(cfg, 100, { fetchImpl: route() });

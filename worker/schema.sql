@@ -201,3 +201,19 @@ CREATE TABLE IF NOT EXISTS draft_picks (
   PRIMARY KEY (draft_id, pick_no)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS draft_picks_player ON draft_picks (draft_id, player_id);
+
+-- The board that mirrors the league's real ESPN draft. One row per season: the
+-- minute job reads it, asks ESPN what has happened, and edits the message.
+-- pick_count and phase are what was last drawn, so a minute with nothing new
+-- costs one ESPN call and no Discord call.
+CREATE TABLE IF NOT EXISTS live_draft (
+  season      INTEGER PRIMARY KEY,
+  channel_id  TEXT    NOT NULL,
+  message_id  TEXT    NOT NULL,
+  status      TEXT    NOT NULL,                 -- watching | done | stopped
+  rounds      INTEGER,                  -- NULL: work it out from the league's roster settings
+  pick_count  INTEGER NOT NULL DEFAULT 0,
+  phase       TEXT    NOT NULL DEFAULT '',      -- waiting | live | done
+  created_by  TEXT    NOT NULL,
+  updated_at  TEXT    NOT NULL
+);

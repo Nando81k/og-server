@@ -92,8 +92,9 @@ export function botChoice(candidates, rand = Math.random) {
   return pool[pool.length - 1];
 }
 
-const label = (seat, max = 14) => `${tidy(seat.name, max)}${seat.userId ? '' : ' (bot)'}`;
-const shortTeam = (seat) => tidy(seat.name, 12) + (seat.userId ? '' : ' (b)');
+// On the live board nobody is a bot: a team with no linked person is simply a team.
+const label = (seat, max = 14) => `${tidy(seat.name, max)}${seat.userId || seat.live ? '' : ' (bot)'}`;
+const shortTeam = (seat) => tidy(seat.name, 12) + (seat.userId || seat.live ? '' : ' (b)');
 const epoch = (iso) => Math.floor(Date.parse(iso) / 1000);
 
 // ----------------------------------------------------------------- buttons
@@ -102,8 +103,8 @@ export const customId = (draftId, action, arg) => `dr:${draftId}:${action}${arg 
 
 /** A draft button's id, or null for anything that isn't one. */
 export function parseCustomId(id) {
-  const m = /^dr:(\d+):(join|leave|begin|best|roster|board|round)(?::(\d+))?$/.exec(String(id ?? ''));
-  return m ? { draftId: Number(m[1]), action: m[2], arg: m[3] === undefined ? null : Number(m[3]) } : null;
+  const m = /^dr:(\d+|live):(join|leave|begin|best|roster|board|round)(?::(\d+))?$/.exec(String(id ?? ''));
+  return m ? { draftId: m[1] === 'live' ? 'live' : Number(m[1]), action: m[2], arg: m[3] === undefined ? null : Number(m[3]) } : null;
 }
 
 const button = (draftId, action, text, style = 2, arg) => ({
@@ -120,6 +121,12 @@ export const boardComponents = (id, running) => [{
   components: running
     ? [button(id, 'best', 'Draft best available', 3), button(id, 'roster', 'My roster'), button(id, 'board', 'Full board')]
     : [button(id, 'board', 'Full board')],
+}];
+
+/** The live board's buttons: look, never pick (the real draft happens in ESPN). */
+export const liveComponents = () => [{
+  type: 1,
+  components: [button('live', 'roster', 'My roster'), button('live', 'board', 'Full board')],
 }];
 
 /** Round-to-round buttons for the full-board view. */
@@ -183,13 +190,17 @@ export function boardEmbed({ draft, recent, best }) {
     });
   }
 
+  const live = Boolean(draft.live);
+  const name = live ? 'Live draft' : `Mock draft #${draft.id}`;
   if (draft.status === 'done' || draft.pickNo > total) {
     return {
-      title: `Mock draft #${draft.id} is done`,
+      title: live ? 'The draft is done' : `Mock draft #${draft.id} is done`,
       color: GREEN,
-      description: `${draft.rounds} rounds, ${total} picks. Use **Full board** to look back, or a mod can run \`/draft start\` for another.`,
+      description: live
+        ? `${draft.rounds} rounds, ${total} picks. Use **Full board** to look back at any round.`
+        : `${draft.rounds} rounds, ${total} picks. Use **Full board** to look back, or a mod can run \`/draft start\` for another.`,
       fields,
-      footer: { text: 'Practice only: nothing here touched ESPN.' },
+      footer: { text: live ? 'Mirrored from ESPN.' : 'Practice only: nothing here touched ESPN.' },
     };
   }
 
@@ -197,9 +208,11 @@ export function boardEmbed({ draft, recent, best }) {
   const seat = draft.seats[slot.seatIndex];
   const lines = [
     `**On the clock:** ${seat.userId ? `<@${seat.userId}> · ` : ''}${label(seat, 30)}`,
-    draft.deadline && seat.userId
-      ? `**Pick clock:** closes <t:${epoch(draft.deadline)}:R> *(${draft.clockSeconds} seconds a pick)*`
-      : `**Pick clock:** a bot picks straight away`,
+    live
+      ? `**Pick clock:** ${draft.clockSeconds ? `${draft.clockSeconds} seconds a pick` : 'see ESPN'} *(ESPN does not share the countdown)*`
+      : draft.deadline && seat.userId
+        ? `**Pick clock:** closes <t:${epoch(draft.deadline)}:R> *(${draft.clockSeconds} seconds a pick)*`
+        : `**Pick clock:** a bot picks straight away`,
     `**Up next:** ${upNext(draft).map((s) => label(s, 16)).join(' · ') || 'nobody, this is the last pick'}`,
   ];
   if (best.length) {
@@ -212,11 +225,11 @@ export function boardEmbed({ draft, recent, best }) {
     });
   }
   return {
-    title: `Mock draft #${draft.id} · Round ${slot.round} · Pick ${draft.pickNo} of ${total}`,
+    title: `${name} · Round ${slot.round} · Pick ${draft.pickNo} of ${total}`,
     color: BLUE,
     description: lines.join('\n'),
     fields,
-    footer: { text: `Snake · ${draft.clockSeconds}s a pick · practice only, nothing touches ESPN` },
+    footer: { text: live ? 'Mirrored from ESPN about once a minute. Make your pick in ESPN.' : `Snake · ${draft.clockSeconds}s a pick · practice only, nothing touches ESPN` },
   };
 }
 
@@ -236,7 +249,7 @@ export function rosterEmbed({ draft, seatIndex, picks }) {
         : []),
       { name: 'Next picks', value: next.length ? next.map((n) => `#${n}`).join(' · ') : 'None left.', inline: false },
     ],
-    footer: { text: 'Positions are listed, not required: this is practice, so there are no roster rules to break.' },
+    footer: draft.live ? undefined : { text: 'Positions are listed, not required: this is practice, so there are no roster rules to break.' },
   };
 }
 
@@ -260,17 +273,42 @@ export function roundEmbed({ draft, picks, round }) {
   };
 }
 
+/**
+ * Before the real draft starts: when it is, and the order teams will pick in.
+ * `date` is epoch ms or null.
+ */
+export function liveOrderEmbed({ draft, date }) {
+  const rows = draft.seats.map((s, i) => [String(i + 1), tidy(s.name, 22), s.userId ? 'linked' : '—']);
+  return {
+    title: 'The draft has not started',
+    color: AMBER,
+    description: [
+      date ? `Scheduled for <t:${Math.floor(date / 1000)}:F> (<t:${Math.floor(date / 1000)}:R>).` : 'ESPN has not set a time yet.',
+      'This message updates by itself once picks start.',
+    ].join('\n'),
+    fields: [{
+      name: draft.seats.length ? `Pick order (${draft.rounds} rounds, ${draft.seats.length} teams)` : 'Pick order',
+      value: draft.seats.length
+        ? ['```', ...grid(['#', 'Team', 'On Discord'], rows, ['right', 'left', 'left']), '```'].join('\n')
+        : 'ESPN has not set the order yet.',
+      inline: false,
+    }],
+    footer: { text: 'Mirrored from ESPN about once a minute. Link your team with /fantasy link to be pinged on your pick.' },
+  };
+}
+
 /** The line announcing a pick. */
 export function pickLine(pick, seat) {
   const who = seat ? label(seat, 40) : 'A team';
   const what = `${tidy(pick.name, 40)}${pick.position || pick.proTeam ? ` (${[pick.position, pick.proTeam].filter(Boolean).join(', ')})` : ''}`;
+  if (pick.auto && seat?.live) return `Pick ${pick.pickNo}: ${who} was auto-drafted ${what}`;
   if (pick.auto && seat?.userId) return `Pick ${pick.pickNo}: ${who} ran out of time, so the bot picked ${what}`;
   return `Pick ${pick.pickNo}: ${who} drafted ${what}`;
 }
 
 /** The line telling a person it is their turn. */
 export const clockLine = (draft, seat) =>
-  `<@${seat.userId}>, you're on the clock for pick ${draft.pickNo}. You have ${draft.clockSeconds} seconds.`;
+  `<@${seat.userId}>, you're on the clock for pick ${draft.pickNo}.${draft.live ? (draft.clockSeconds ? ` You have ${draft.clockSeconds} seconds in ESPN.` : '') : ` You have ${draft.clockSeconds} seconds.`}`;
 
 /**
  * Check a pick before making it. `player` is the pool entry or null; `userId`

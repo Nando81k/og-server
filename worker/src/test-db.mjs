@@ -5,9 +5,11 @@
  */
 
 export function memoryDb() {
-  const state = { links: [], trades: [], votes: [], meta: new Map(), nextId: 1, drafts: [], pool: [], dpicks: [], nextDraft: 1 };
+  const state = { links: [], trades: [], votes: [], meta: new Map(), nextId: 1, drafts: [], pool: [], dpicks: [], nextDraft: 1, live: [] };
 
   const query = (sql, b) => {
+    if (sql.includes('FROM live_draft WHERE season = ?')) return state.live.filter((x) => x.season === b[0]);
+    if (sql.includes("FROM live_draft WHERE status = 'watching'")) return state.live.filter((x) => x.status === 'watching');
     if (sql.includes('FROM fantasy_links WHERE season = ? AND user_id')) {
       return state.links.filter((l) => l.season === b[0] && l.user_id === b[1]);
     }
@@ -149,6 +151,17 @@ export function memoryDb() {
       const d = state.drafts.find((x) => x.id === b[2] && x.pick_no === b[3]);
       if (!d) return { changes: 0 };
       d.pick_no = b[0]; d.deadline = b[1];
+      return { changes: 1 };
+    }
+    if (sql.includes('INSERT OR REPLACE INTO live_draft')) {
+      state.live = state.live.filter((x) => x.season !== b[0]);
+      state.live.push({ season: b[0], channel_id: b[1], message_id: b[2], status: 'watching', rounds: b[3], pick_count: 0, phase: '', created_by: b[4], updated_at: b[5] });
+      return { changes: 1 };
+    }
+    if (sql.includes('UPDATE live_draft SET')) {
+      const l = state.live.find((x) => x.season === b[4]);
+      if (!l) return { changes: 0 };
+      l.pick_count = b[0]; l.phase = b[1]; l.status = b[2]; l.updated_at = b[3];
       return { changes: 1 };
     }
     if (sql.includes('INSERT INTO meta')) {

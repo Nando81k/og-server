@@ -169,6 +169,20 @@ hand and isn't touched; add a line to it pointing people at `/trade propose`.
 ESPN's responses. The parts to watch on first use are the roster lists in the
 autocomplete, and a processed trade flipping its card to completed.
 
+## Checking the bot against the real league
+
+Parts of this bot are built on what the `espn-api` library shows ESPN sends,
+not on a league it could be run against. `/fantasy debug` (mods only) asks
+ESPN for one player and the league settings and reports what is really there:
+the scoring format and categories, the trade-settings fields, which stat
+windows and seasons come back, whether game-by-game logs exist, whether
+ownership and rank are present, and whether the public bio page answers.
+
+It prints field names and counts, never cookies or account details, and only
+the mod who ran it sees the reply. Run it once after deploying and keep the
+output: it is what the stats charts and the trade-impact estimate get built
+against.
+
 ## Tests
 
 ```bash

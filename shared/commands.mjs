@@ -136,6 +136,20 @@ export const COMMANDS = [
       { type: SUB_COMMAND, name: 'recent', description: 'The latest adds, drops and trades' },
       {
         type: SUB_COMMAND,
+        name: 'debug',
+        description: 'Mods: show what ESPN really sends for this league',
+        options: [
+          {
+            name: 'player',
+            description: 'A player to inspect (default: the first one found)',
+            type: STRING,
+            required: false,
+            autocomplete: true,
+          },
+        ],
+      },
+      {
+        type: SUB_COMMAND,
         name: 'link',
         description: 'Say which ESPN team is yours',
         options: [
@@ -239,6 +253,9 @@ export const COMMANDS = [
     ],
   },
 ];
+
+/** The /fantasy subcommands only a mod may run. */
+export const FANTASY_MOD_ONLY = ['debug'];
 
 /** The /trade subcommands only a mod may run. */
 export const TRADE_MOD_ONLY = ['approve', 'veto'];

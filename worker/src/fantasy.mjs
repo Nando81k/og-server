@@ -406,6 +406,136 @@ export async function fetchBio(id, { fetchImpl = fetch } = {}) {
   }
 }
 
+// --------------------------------------------------------------- diagnostics
+
+const keysOf = (o) => (o && typeof o === 'object' ? Object.keys(o) : []);
+const short = (list, max = 8) => (list.length > max ? `${list.slice(0, max).join(', ')}, +${list.length - max} more` : list.join(', '));
+
+/**
+ * Ask ESPN for the shapes this bot is built on, and report what is really
+ * there. Each part fails on its own: when a guess about ESPN is wrong the
+ * point is to see which one, not to stop at the first.
+ *
+ * It reports field names, counts and the scoring format, never values that
+ * belong to an account: no cookies, no tokens, no owner details.
+ */
+export async function diagnose(cfg, playerId, { fetchImpl = fetch, ...deps } = {}) {
+  const facts = { errors: [] };
+  const run = async (name, fn) => {
+    try { facts[name] = await fn(); } catch (err) { facts.errors.push(`${name}: ${err.message}`); }
+  };
+
+  await run('league', async () => {
+    const j = await get(cfg, { views: ['mSettings', 'mTeam'], unwrap: true, fetchImpl, ...deps });
+    const scoring = j.settings?.scoringSettings;
+    const trade = j.settings?.tradeSettings;
+    return {
+      scoringType: scoring?.scoringType ?? null,
+      teams: Array.isArray(j.teams) ? j.teams.length : null,
+      scoringPeriodId: j.scoringPeriodId ?? null,
+      finalScoringPeriod: j.status?.finalScoringPeriod ?? null,
+      matchupPeriod: j.status?.currentMatchupPeriod ?? null,
+      categories: Array.isArray(scoring?.scoringItems) ? scoring.scoringItems.map((i) => i.statId) : null,
+      reversed: Array.isArray(scoring?.scoringItems) ? scoring.scoringItems.filter((i) => i.isReverseItem).map((i) => i.statId) : null,
+      tradeKeys: keysOf(trade),
+      deadline: typeof trade?.deadlineDate === 'number' && trade.deadlineDate > 0 ? trade.deadlineDate : null,
+    };
+  });
+
+  await run('card', async () => {
+    const year = cfg.season;
+    const j = await get(cfg, {
+      views: ['kona_playercard'],
+      filter: {
+        players: {
+          filterIds: { value: [playerId] },
+          // Deliberately generous: game-by-game for the last 15 periods, every
+          // split, and four earlier seasons, to see which of them come back.
+          filterStatsForTopScoringPeriodIds: {
+            value: 15,
+            additionalValue: [
+              `00${year}`, `10${year}`, `01${year}`, `02${year}`, `03${year}`,
+              ...[1, 2, 3, 4].map((n) => `00${year - n}`),
+            ],
+          },
+        },
+      },
+      unwrap: true, fetchImpl, ...deps,
+    });
+    const entry = j.players?.[0];
+    const p = entry?.player ?? entry?.playerPoolEntry?.player ?? entry;
+    if (!p) throw new Error('no player came back');
+    const stats = Array.isArray(p.stats) ? p.stats : [];
+    const SPLIT = new Set(['00', '01', '02', '03', '10']);
+    const splits = stats.filter((x) => SPLIT.has(String(x.id).slice(0, 2)));
+    const logs = stats.filter((x) => !SPLIT.has(String(x.id).slice(0, 2)));
+    return {
+      name: p.fullName ?? null,
+      entryKeys: keysOf(entry),
+      playerKeys: keysOf(p),
+      ownershipKeys: keysOf(p.ownership),
+      percentOwned: typeof p.ownership?.percentOwned === 'number' ? p.ownership.percentOwned : null,
+      rankKeys: keysOf(p.draftRanksByRankType),
+      ratingKeys: keysOf(p.ratings),
+      splits: splits.map((x) => `${x.id}${x.averageStats ? '*' : ''}`),
+      seasons: [...new Set(stats.map((x) => x.seasonId).filter((v) => v !== undefined))],
+      logCount: logs.length,
+      logIds: logs.slice(0, 3).map((x) => String(x.id)),
+      logsHaveAverages: logs.length ? logs.some((x) => x.averageStats) : null,
+      logsHaveStats: logs.length ? logs.some((x) => x.stats && keysOf(x.stats).length) : null,
+    };
+  });
+
+  await run('bio', async () => {
+    const res = await fetchImpl(
+      `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}`,
+      { headers: { 'User-Agent': 'og-server', Accept: 'application/json' } }
+    );
+    if (!res.ok) return { status: res.status, fields: [] };
+    const a = (await res.json())?.athlete ?? {};
+    const want = ['displayHeight', 'displayWeight', 'age', 'college', 'experience'];
+    return { status: res.status, fields: want.filter((k) => a[k] !== undefined && a[k] !== null) };
+  });
+
+  return facts;
+}
+
+/** The diagnostic as a message a mod can paste back. */
+export function diagnosticMessage(facts) {
+  const out = [];
+  const L = facts.league;
+  if (L) {
+    out.push(
+      '**League**',
+      '```',
+      `scoring: ${L.scoringType ?? '?'} · ${L.teams ?? '?'} teams`,
+      `scoring period ${L.scoringPeriodId ?? '?'} of ${L.finalScoringPeriod ?? '?'} · matchup period ${L.matchupPeriod ?? '?'}`,
+      `categories: ${L.categories ? short(L.categories, 14) : '?'}${L.reversed?.length ? ` (lower is better: ${L.reversed.join(', ')})` : ''}`,
+      `trade deadline: ${L.deadline ? new Date(L.deadline).toISOString().slice(0, 10) : 'none found'} · tradeSettings: ${L.tradeKeys.length ? short(L.tradeKeys, 6) : 'absent'}`,
+      '```'
+    );
+  }
+  const C = facts.card;
+  if (C) {
+    out.push(
+      `**Player card: ${C.name ?? '?'}**`,
+      '```',
+      `player fields: ${short(C.playerKeys, 12)}`,
+      `ownership: ${C.percentOwned ?? 'no percentOwned'} (${C.ownershipKeys.length ? short(C.ownershipKeys, 5) : 'no block'})`,
+      `ranks: ${C.rankKeys.length ? short(C.rankKeys, 4) : 'no draftRanks'} · ratings: ${C.ratingKeys.length ? short(C.ratingKeys, 4) : 'none'}`,
+      `splits (* = per-game): ${C.splits.length ? short(C.splits, 10) : 'none'}`,
+      `seasons present: ${C.seasons.length ? C.seasons.join(', ') : 'none'}`,
+      `game logs: ${C.logCount}${C.logCount ? ` (e.g. ${C.logIds.join(', ')}) per-game: ${C.logsHaveAverages ? 'yes' : 'no'}, totals: ${C.logsHaveStats ? 'yes' : 'no'}` : ''}`,
+      '```'
+    );
+  }
+  const B = facts.bio;
+  if (B) out.push(`**Bio page:** HTTP ${B.status} · has ${B.fields.length ? B.fields.join(', ') : 'nothing usable'}`);
+  if (facts.errors.length) out.push('**Failed:**', '```', ...facts.errors.map((e) => e.slice(0, 160)), '```');
+  const text = out.join('\n');
+  return text.length <= 2000 ? text : `${text.slice(0, 1990)}\n…`;
+}
+
 // ---------------------------------------------------------------- formatting
 
 const record = (t) => `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ''}`;

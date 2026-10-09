@@ -52,12 +52,16 @@ import {
   LIVE, DEFAULT_VOTE_HOURS, MAX_NOTE,
   tallyVotes, decide, parseCustomId, voteComponents, voteLabel, clean,
   proposalMessage, closedMessage, resultAnnouncement, validateProposal, findCompletedTrades,
+  parseExploreId, exploreMessage, exploreComponents,
 } from './trade.mjs';
+import { playerMessage } from './player.mjs';
 import {
   fantasyConfig,
   fetchLeague as fantasyFetchLeague,
   fetchActivity as fantasyFetchActivity,
   fetchRosters as fantasyFetchRosters,
+  fetchPlayerCards as fantasyFetchPlayerCards,
+  fetchBio as fantasyFetchBio,
   parseStandings,
   parseMatchups,
   standingsMessage as fantasyStandingsMessage,
@@ -69,6 +73,7 @@ import {
 const PING = 1;
 const APPLICATION_COMMAND = 2;
 const MESSAGE_COMPONENT = 3;
+const UPDATE_MESSAGE = 7;
 const AUTOCOMPLETE = 4;
 const PONG = 1;
 const REPLY = 4;
@@ -834,20 +839,99 @@ export async function handleTradeVote(interaction, env, api, deps = {}) {
   // Redraw the shared card from the database rather than from this one click,
   // so two votes landing together each show the other's.
   try {
-    await api.editMessage(
-      interaction.channel_id ?? trade.channelId,
-      interaction.message?.id ?? trade.messageId,
-      {
-        content: proposalMessage({ trade, tally, otherUserId: ex.otherUserId }),
-        components: voteComponents(trade.id),
-        allowed_mentions: { parse: [] },
-      }
-    );
+    // Always the stored card, never the message that was clicked: a vote
+    // pressed inside the private Explore panel is on the panel, not the card.
+    await api.editMessage(trade.channelId, trade.messageId, {
+      content: proposalMessage({ trade, tally, otherUserId: ex.otherUserId }),
+      components: voteComponents(trade.id),
+      allowed_mentions: { parse: [] },
+    });
   } catch (err) {
     // The vote itself is saved; a stale count on the card heals on the next press.
     console.warn(`Could not redraw trade #${trade.id}: ${err.message}`);
   }
   return onlyYou(`Vote recorded: **${voteLabel(parsed.vote)}**. You can change it until voting closes.`);
+}
+
+/**
+ * The Explore button on a trade card, and the tabs inside the panel it opens.
+ *
+ * The panel is private to whoever pressed the button, so it can be as long as
+ * it needs to be without cluttering the channel. Pressing Explore opens it as
+ * a new private message; pressing a tab rewrites that same message.
+ */
+export async function handleTradeExplore(interaction, env, deps = {}) {
+  const { fetchCards = fantasyFetchPlayerCards, now = Date.now() } = deps;
+  const refuse = (text) => ({ update: false, data: onlyYou(text) });
+  const cfg = fantasyConfig(env);
+  if (!cfg) return refuse('The fantasy league has not been connected yet.');
+  const parsed = parseExploreId(interaction.data?.custom_id);
+  if (!parsed) return refuse('Not something I handle.');
+
+  const trade = await getTrade(env.DB, parsed.tradeId);
+  if (!trade) return refuse('That trade no longer exists.');
+
+  let cards;
+  try {
+    cards = await fetchCards(cfg, [...trade.give, ...trade.get].map((p) => p.id));
+  } catch (err) {
+    console.error(err);
+    return refuse(`Could not reach ESPN: ${err.message}`);
+  }
+
+  const ex = await excludedVoters(env.DB, trade);
+  const tally = tallyVotes(await tradeVotes(env.DB, trade.id), ex.ids);
+  const open = trade.status === 'open' && now < Date.parse(trade.closesAt);
+  return {
+    // A tab press rewrites the panel; the Explore button opens a new one.
+    update: String(interaction.data.custom_id).startsWith('tx:'),
+    data: {
+      content: exploreMessage({ trade, cards, tab: parsed.tab, tally, open }),
+      components: exploreComponents(trade.id, parsed.tab, open),
+      flags: PRIVATE,
+      allowed_mentions: { parse: [] },
+    },
+  };
+}
+
+/** /player <name>: a public card for one player on a team in this league. */
+export async function handlePlayer(interaction, env, deps = {}) {
+  const {
+    fetchRosters = fantasyFetchRosters,
+    fetchCards = fantasyFetchPlayerCards,
+    fetchBio = fantasyFetchBio,
+  } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
+  const id = Number(optionsOf(interaction).name);
+  if (!Number.isInteger(id)) return onlyYou('Pick a player from the list as you type.');
+
+  try {
+    const [rosters, cards, bio] = await Promise.all([fetchRosters(cfg), fetchCards(cfg, [id]), fetchBio(id)]);
+    const card = cards.get(id);
+    if (!card) return onlyYou('ESPN has no card for that player.');
+    const owner = rosters.teams.find((t) => t.players.some((p) => p.id === id))?.name ?? null;
+    return say(playerMessage({ card, owner, bio }).slice(0, MAX_MESSAGE));
+  } catch (err) {
+    console.error(err);
+    return onlyYou(`Could not reach ESPN: ${err.message}`);
+  }
+}
+
+/** Autocomplete for /player: everyone on a team in the league, with their team. */
+export async function handlePlayerAutocomplete(interaction, env, deps = {}) {
+  const { fetchRosters = fantasyFetchRosters } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return [];
+  const focused = (interaction.data?.options ?? []).find((o) => o.focused);
+  if (!focused) return [];
+  const typed = String(focused.value ?? '').toLowerCase();
+  return (await fetchRosters(cfg)).teams
+    .flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name, team: t.name })))
+    .filter((p) => p.name.toLowerCase().includes(typed))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 25)
+    .map((p) => ({ name: `${p.name} (${p.team})`.slice(0, 100), value: String(p.id) }));
 }
 
 /** Close every trade whose time is up, announcing how it ended. */
@@ -1152,6 +1236,22 @@ export default {
       return json({ type: REPLY, data: await handleFantasy(interaction, env) });
     }
 
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'player') {
+      return json({ type: REPLY, data: await handlePlayer(interaction, env) });
+    }
+
+    if (interaction.type === AUTOCOMPLETE && interaction.data?.name === 'player') {
+      try {
+        return json({
+          type: AUTOCOMPLETE_RESULT,
+          data: { choices: await handlePlayerAutocomplete(interaction, env) },
+        });
+      } catch (err) {
+        console.error(err);
+        return json({ type: AUTOCOMPLETE_RESULT, data: { choices: [] } });
+      }
+    }
+
     if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'trade') {
       try {
         return json({
@@ -1161,6 +1261,17 @@ export default {
       } catch (err) {
         console.error(err);
         return json({ type: REPLY, data: onlyYou(`Could not do that: ${err.message}`) });
+      }
+    }
+
+    // The Explore button and the panel's tabs.
+    if (interaction.type === MESSAGE_COMPONENT && parseExploreId(interaction.data?.custom_id)) {
+      try {
+        const out = await handleTradeExplore(interaction, env);
+        return json({ type: out.update ? UPDATE_MESSAGE : REPLY, data: out.data });
+      } catch (err) {
+        console.error(err);
+        return json({ type: REPLY, data: onlyYou(`Could not open that: ${err.message}`) });
       }
     }
 

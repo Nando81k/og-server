@@ -11,6 +11,9 @@
  * managers (or the commissioner, in ESPN) act on that.
  */
 
+import { bestLine, netFor, sideTable, netBlock, show, tidy } from './player.mjs';
+import { CATEGORIES } from './fantasy.mjs';
+
 export const VOTES = ['fair', 'collusion', 'robbery'];
 
 /** Fewest votes that count as the server having spoken. */
@@ -87,10 +90,10 @@ export function parseCustomId(id) {
   return m ? { tradeId: Number(m[1]), vote: m[2] } : null;
 }
 
-/** Discord button styles: 3 success, 4 danger, 1 primary. */
-export function voteComponents(tradeId) {
+/** The three vote buttons, as a row. Discord styles: 3 success, 4 danger, 1 primary. */
+function voteRow(tradeId) {
   const style = { fair: 3, collusion: 4, robbery: 1 };
-  return [{
+  return {
     type: 1,
     components: VOTES.map((v) => ({
       type: 2,
@@ -98,7 +101,42 @@ export function voteComponents(tradeId) {
       label: LABEL[v],
       custom_id: customId(tradeId, v),
     })),
+  };
+}
+
+/** What sits under a trade card: the votes, and a way to look before voting. */
+export function voteComponents(tradeId) {
+  const row = voteRow(tradeId);
+  row.components.push({ type: 2, style: 2, label: 'Explore', custom_id: `trade:${tradeId}:explore` });
+  return [row];
+}
+
+/**
+ * The Explore button or a tab button inside the panel, or null.
+ * `trade:12:explore` opens the panel; `tx:12:players` switches its tab.
+ */
+export function parseExploreId(id) {
+  const open = /^trade:(\d+):explore$/.exec(String(id ?? ''));
+  if (open) return { tradeId: Number(open[1]), tab: 'overview' };
+  const tab = /^tx:(\d+):(overview|players)$/.exec(String(id ?? ''));
+  return tab ? { tradeId: Number(tab[1]), tab: tab[2] } : null;
+}
+
+export const TABS = [['overview', 'Overview'], ['players', 'Players']];
+
+/** The panel's tab row, plus the vote buttons while voting is still open. */
+export function exploreComponents(tradeId, tab, open) {
+  const rows = [{
+    type: 1,
+    components: TABS.map(([key, label]) => ({
+      type: 2,
+      style: key === tab ? 1 : 2,
+      label,
+      custom_id: `tx:${tradeId}:${key}`,
+    })),
   }];
+  if (open) rows.push(voteRow(tradeId));
+  return rows;
 }
 
 /**
@@ -253,4 +291,69 @@ export function findCompletedTrades(items, trades) {
       (g) => g.size === ids.size && [...ids].every((id) => g.has(id))
     );
   });
+}
+
+const nameOf = (card, fallback) => card?.name ?? fallback;
+
+/** Each player with the card ESPN returned for them, or a stub if it didn't. */
+function withCards(players, cards) {
+  return players.map((p) => {
+    const card = cards.get(p.id) ?? { id: p.id, name: p.name, stats: {} };
+    return { card, ...bestLine(card) };
+  });
+}
+
+function overviewTab(trade, giving, getting) {
+  const block = (title, entries) => {
+    const out = [`**${tidy(title)}**`];
+    for (const e of entries) {
+      const c = e.card;
+      const meta = [c.position, c.proTeam, c.injury].filter(Boolean).join(', ');
+      const facts = [c.rank ? `ESPN #${c.rank}` : null, c.owned != null ? `owned ${Math.round(c.owned)}%` : null]
+        .filter(Boolean).join(', ');
+      out.push(`• **${tidy(nameOf(c, '?'))}** (${meta})${facts ? ` — ${facts}` : ''}`);
+      out.push(
+        e.line
+          ? `   ${show(e.line.pts, CATEGORIES[0])} pts · ${show(e.line.reb, CATEGORIES[1])} reb · ${show(e.line.ast, CATEGORIES[2])} ast${e.label === 'last season' ? ' (last season)' : ''}`
+          : '   no stats yet'
+      );
+    }
+    return out.join('\n');
+  };
+  const net = netFor(giving, getting);
+  const better = net.filter((n) => n.better === true).map((n) => n.label);
+  const worse = net.filter((n) => n.better === false).map((n) => n.label);
+  return [
+    block(`${trade.fromName} sends`, giving),
+    block(`${trade.toName} sends`, getting),
+    `**For ${tidy(trade.fromName)}:** better in ${better.length ? better.join(', ') : 'nothing'}; worse in ${worse.length ? worse.join(', ') : 'nothing'}. Percentages aren't netted. See the Players tab for the numbers.`,
+  ].join('\n\n');
+}
+
+function playersTab(trade, giving, getting) {
+  return [
+    sideTable(`${trade.fromName} sends`, giving),
+    sideTable(`${trade.toName} sends`, getting),
+    netBlock(trade.fromName, netFor(giving, getting)),
+  ].join('\n');
+}
+
+/**
+ * The private Explore panel for a trade: the facts a voter needs, so the vote
+ * can be an informed one. `cards` is a Map of player id to parsed card.
+ */
+export function exploreMessage({ trade, cards, tab = 'overview', tally, open }) {
+  const giving = withCards(trade.give, cards);
+  const getting = withCards(trade.get, cards);
+  const status = open
+    ? `Voting closes <t:${epoch(trade.closesAt)}:R> · ${tally.total} vote${tally.total === 1 ? '' : 's'} so far`
+    : `Voting is closed (${trade.status.replace('_', ' ')}).`;
+  const note = [...giving, ...getting].some((e) => e.label === 'last season')
+    ? '\n*Some players have no games yet this season, so last season is shown.*'
+    : '';
+  const body = tab === 'players' ? playersTab(trade, giving, getting) : overviewTab(trade, giving, getting);
+  const text = `**Trade #${trade.id} · Explore** — ${clean(trade.fromName)} ⇄ ${clean(trade.toName)}\n${status}${note}\n\n${body}`;
+  // Discord rejects anything over 2000 characters outright, so a long name or
+  // six players cannot be allowed to turn the whole panel into an error.
+  return text.length <= 2000 ? text : `${text.slice(0, 1990)}\n…`;
 }

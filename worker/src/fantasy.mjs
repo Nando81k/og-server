@@ -250,6 +250,162 @@ export async function fetchRosters(cfg, { ttlMs = 60_000, now = Date.now(), ...d
   return value;
 }
 
+// -------------------------------------------------------------- player cards
+
+// ESPN's own position and team numbering, as the espn-api library maps it.
+// defaultPositionId is 1-based into POSITIONS.
+const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', 'PF/C', 'F/C', 'UT'];
+const PRO_TEAMS = {
+  0: 'FA', 1: 'ATL', 2: 'BOS', 3: 'NOP', 4: 'CHI', 5: 'CLE', 6: 'DAL', 7: 'DEN', 8: 'DET', 9: 'GSW',
+  10: 'HOU', 11: 'IND', 12: 'LAC', 13: 'LAL', 14: 'MIA', 15: 'MIL', 16: 'MIN', 17: 'BKN', 18: 'NYK',
+  19: 'ORL', 20: 'PHL', 21: 'PHO', 22: 'POR', 23: 'SAC', 24: 'SAS', 25: 'OKC', 26: 'UTA', 27: 'WAS',
+  28: 'TOR', 29: 'MEM', 30: 'CHA',
+};
+
+/** ESPN's stat ids for the categories shown, keyed by what this code calls them. */
+const STAT_ID = { pts: '0', blk: '1', stl: '2', ast: '3', reb: '6', to: '11', tpm: '17', fg: '19', ft: '20', min: '40', gp: '42' };
+
+/** The category columns, in the order they are always shown. */
+export const CATEGORIES = [
+  { key: 'pts', label: 'PTS', pct: false, lowerIsBetter: false },
+  { key: 'reb', label: 'REB', pct: false, lowerIsBetter: false },
+  { key: 'ast', label: 'AST', pct: false, lowerIsBetter: false },
+  { key: 'stl', label: 'STL', pct: false, lowerIsBetter: false },
+  { key: 'blk', label: 'BLK', pct: false, lowerIsBetter: false },
+  { key: 'tpm', label: '3PM', pct: false, lowerIsBetter: false },
+  { key: 'fg', label: 'FG%', pct: true, lowerIsBetter: false },
+  { key: 'ft', label: 'FT%', pct: true, lowerIsBetter: false },
+  { key: 'to', label: 'TO', pct: false, lowerIsBetter: true },
+];
+
+/**
+ * One split's per-game line, or null when there is nothing to show.
+ *
+ * A player with no games in a split has an entry with empty or zeroed
+ * averages; showing that as a row of zeros would read as "scores nothing"
+ * rather than "hasn't played", so it is null and the caller says so.
+ */
+function statLine(split) {
+  const avg = split?.averageStats;
+  if (!avg || typeof avg[STAT_ID.pts] !== 'number') return null;
+  const gp = avg[STAT_ID.gp] ?? split.stats?.[STAT_ID.gp] ?? null;
+  if (gp === 0) return null;
+  const line = { gp };
+  for (const [key, id] of Object.entries(STAT_ID)) {
+    if (key !== 'gp') line[key] = typeof avg[id] === 'number' ? avg[id] : null;
+  }
+  return line;
+}
+
+const INJURY = {
+  ACTIVE: 'Healthy', DAY_TO_DAY: 'Day-to-day', OUT: 'Out', INJURY_RESERVE: 'Injured reserve',
+  SUSPENSION: 'Suspended', DOUBTFUL: 'Doubtful', QUESTIONABLE: 'Questionable', PROBABLE: 'Probable',
+};
+
+/**
+ * Player cards from ESPN's kona_playercard view, keyed by player id.
+ *
+ * Splits are matched by ESPN's id scheme: two digits for the split (00 season
+ * total, 01 last 7, 02 last 15, 03 last 30) then the season. `prior` is last
+ * season's total, so a card still shows something before opening night.
+ *
+ * Ownership and rank are read defensively: they are in the card as far as the
+ * data I could check shows, but the espn-api library never reads them, so they
+ * are the likeliest fields to be named differently. A missing one is left out
+ * of the card rather than failing it.
+ */
+export function parsePlayerCards(json, season) {
+  if (!Array.isArray(json?.players)) throw new Error('Malformed payload: missing players');
+  const out = new Map();
+  for (const entry of json.players) {
+    const p = entry.player ?? entry.playerPoolEntry?.player ?? entry;
+    const id = p.id ?? entry.id;
+    if (id === undefined || !p.fullName) continue;
+    const split = (code, year) => statLine((p.stats ?? []).find((x) => x.id === `${code}${year}`));
+    out.set(id, {
+      id,
+      name: p.fullName,
+      position: POSITIONS[(p.defaultPositionId ?? 0) - 1] ?? '',
+      proTeam: PRO_TEAMS[p.proTeamId] ?? '',
+      injury: INJURY[p.injuryStatus] ?? (p.injuryStatus ? String(p.injuryStatus).replace(/_/g, ' ').toLowerCase() : 'Healthy'),
+      owned: typeof p.ownership?.percentOwned === 'number' ? p.ownership.percentOwned : null,
+      rank: p.draftRanksByRankType?.STANDARD?.rank ?? p.ratings?.['0']?.totalRanking ?? null,
+      stats: {
+        season: split('00', season),
+        last7: split('01', season),
+        last15: split('02', season),
+        last30: split('03', season),
+        prior: split('00', season - 1),
+      },
+    });
+  }
+  return out;
+}
+
+// Season averages move slowly, and a trade card opens several players at once,
+// so the same set is asked for at most every five minutes.
+let cardCache = { key: '', at: 0, value: null };
+
+export function clearCardCache() {
+  cardCache = { key: '', at: 0, value: null };
+}
+
+export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.now(), ...deps } = {}) {
+  if (ids.length === 0) return new Map();
+  const key = `${cfg.leagueId}:${cfg.season}:${[...ids].sort((a, b) => a - b).join(',')}`;
+  if (ttlMs > 0 && cardCache.key === key && now - cardCache.at < ttlMs) return cardCache.value;
+  const year = cfg.season;
+  const json = await get(cfg, {
+    views: ['kona_playercard'],
+    filter: {
+      players: {
+        filterIds: { value: ids },
+        // The first number is how many recent scoring periods to include
+        // game-by-game, which a card does not need. The ids are the splits it
+        // does: season total, projected, last 7/15/30, and last season's total.
+        filterStatsForTopScoringPeriodIds: {
+          value: 1,
+          additionalValue: [`00${year}`, `10${year}`, `01${year}`, `02${year}`, `03${year}`, `00${year - 1}`],
+        },
+      },
+    },
+    unwrap: true,
+    ...deps,
+  });
+  const value = parsePlayerCards(json, year);
+  if (ttlMs > 0) cardCache = { key, at: now, value };
+  return value;
+}
+
+/**
+ * Height, weight, age and college from ESPN's public athlete page.
+ *
+ * Best effort and never fatal: it is a different host from the fantasy API,
+ * it assumes the fantasy player id is also the athlete id, and any of that can
+ * be wrong. A card without a bio line is still a good card.
+ */
+export async function fetchBio(id, { fetchImpl = fetch } = {}) {
+  try {
+    const res = await fetchImpl(
+      `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${id}`,
+      { headers: { 'User-Agent': 'og-server', Accept: 'application/json' } }
+    );
+    if (!res.ok) return null;
+    const a = (await res.json())?.athlete;
+    if (!a) return null;
+    const bio = {
+      height: a.displayHeight ?? null,
+      weight: a.displayWeight ?? null,
+      age: typeof a.age === 'number' ? a.age : null,
+      college: a.college?.name ?? null,
+      experience: typeof a.experience?.years === 'number' ? a.experience.years : null,
+    };
+    return Object.values(bio).some((v) => v !== null) ? bio : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- formatting
 
 const record = (t) => `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ''}`;

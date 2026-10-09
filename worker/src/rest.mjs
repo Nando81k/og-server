@@ -41,6 +41,10 @@ export function createApi(token) {
         allowed_mentions: allowedMentions,
         ...extra,
       }),
+    // Fill in the reply to an interaction that was answered with "working...".
+    // It is authorised by the interaction's own token, not the bot's.
+    editOriginal: (applicationId, interactionToken, body) =>
+      call('PATCH', `/webhooks/${applicationId}/${interactionToken}/messages/@original`, body),
     // Edit a message the bot posted. Pass `components: []` to take the buttons off.
     editMessage: (channelId, messageId, body) =>
       call('PATCH', `/channels/${channelId}/messages/${messageId}`, body),

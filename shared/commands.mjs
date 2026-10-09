@@ -187,6 +187,34 @@ export const COMMANDS = [
     ],
   },
   {
+    name: 'draft',
+    description: 'Run a practice draft with your league and bots',
+    // Starting, beginning and cancelling are for mods, but Discord can only
+    // hide a whole command, so they are checked in the handler like /trade.
+    options: [
+      {
+        type: SUB_COMMAND,
+        name: 'start',
+        description: 'Mods: open a practice draft lobby',
+        options: [
+          { name: 'rounds', description: 'How many rounds (default 13)', type: INTEGER, required: false, min_value: 1, max_value: 20 },
+          { name: 'clock', description: 'Seconds per pick (default 60)', type: INTEGER, required: false, min_value: 10, max_value: 600 },
+        ],
+      },
+      { type: SUB_COMMAND, name: 'join', description: 'Take your team in the lobby' },
+      { type: SUB_COMMAND, name: 'begin', description: 'Mods: draw the order and start the draft' },
+      {
+        type: SUB_COMMAND,
+        name: 'pick',
+        description: 'Make your pick when you are on the clock',
+        options: [
+          { name: 'player', description: 'Start typing a name; the best available come first', type: STRING, required: true, autocomplete: true },
+        ],
+      },
+      { type: SUB_COMMAND, name: 'cancel', description: 'Mods: call the practice draft off' },
+    ],
+  },
+  {
     name: 'compare',
     description: 'Put two to four players side by side',
     options: [
@@ -264,6 +292,9 @@ export const COMMANDS = [
     ],
   },
 ];
+
+/** The /draft subcommands only a mod may run. */
+export const DRAFT_MOD_ONLY = ['start', 'begin', 'cancel'];
 
 /** The /fantasy subcommands only a mod may run. */
 export const FANTASY_MOD_ONLY = ['debug'];

@@ -40,7 +40,7 @@ import {
   openMatches as bracketOpenMatches, isComplete as bracketIsComplete,
   MIN_ENTRANTS, MAX_ENTRANTS,
 } from './tournament.mjs';
-import { BRACKET_MOD_ONLY, TRADE_MOD_ONLY, FANTASY_MOD_ONLY } from '../../shared/commands.mjs';
+import { BRACKET_MOD_ONLY, TRADE_MOD_ONLY, FANTASY_MOD_ONLY, DRAFT_MOD_ONLY } from '../../shared/commands.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
@@ -57,6 +57,16 @@ import {
 import { playerEmbed, compareEmbed, chartData } from './player.mjs';
 import { areaChartUrl } from './chart.mjs';
 import {
+  createDraft, getDraft, activeDraft, runningDrafts, setDraftMessage, updateSeats, beginDraft,
+  setDraftStatus, availablePlayers, poolPlayer, draftPicks, recordPick,
+} from './db.mjs';
+import {
+  DEFAULT_ROUNDS, MAX_ROUNDS, DEFAULT_CLOCK, MIN_CLOCK, MAX_CLOCK, POOL_SIZE, MAX_BOT_PICKS_PER_RUN,
+  slotFor, totalPicks, seatOnClock, shuffle, botChoice, lobbyEmbed, lobbyComponents, boardEmbed,
+  boardComponents, rosterEmbed, roundEmbed, roundComponents, pickLine, clockLine, validatePick,
+  parseCustomId as parseDraftId,
+} from './draft.mjs';
+import {
   fantasyConfig,
   fetchLeague as fantasyFetchLeague,
   fetchActivity as fantasyFetchActivity,
@@ -66,6 +76,7 @@ import {
   searchPlayers as fantasySearchPlayers,
   categoriesFrom,
   diagnose as fantasyDiagnose,
+  fetchDraftPool as fantasyFetchDraftPool,
   diagnosticMessage,
   parseStandings,
   parseMatchups,
@@ -79,6 +90,8 @@ const PING = 1;
 const APPLICATION_COMMAND = 2;
 const MESSAGE_COMPONENT = 3;
 const UPDATE_MESSAGE = 7;
+const DEFERRED_REPLY = 5;
+const DEFERRED_UPDATE = 6;
 const AUTOCOMPLETE = 4;
 const PONG = 1;
 const REPLY = 4;
@@ -588,6 +601,13 @@ const FALLBACK_DEBUG_PLAYER = 3112335;
 
 /** The cron that drives the fantasy feed. Kept in step with wrangler.toml. */
 export const FANTASY_CRON = '*/10 * * * *';
+
+/**
+ * The once-a-minute check that keeps practice drafts moving: it auto-picks for
+ * anyone whose clock has run out and lets bots pick. Kept in step with
+ * wrangler.toml, and does nothing at all when no draft is running.
+ */
+export const DRAFT_CRON = '* * * * *';
 
 /**
  * Most moves one feed run will post. A league that was quiet for a day can
@@ -1151,8 +1171,375 @@ export async function handleFantasyAutocomplete(interaction, env, deps = {}) {
   return team ? choices(team.players.filter((p) => !taken.has(String(p.id)))) : [];
 }
 
+// -------------------------------------------------------------- mock drafts
+
+const isoAt = (ms) => new Date(ms).toISOString();
+
+/**
+ * Make one pick, for a person, a bot, or the clock, and move the draft on.
+ * Returns { ok: true, pick, seat, finished } or { ok: false, reason }.
+ */
+async function makeDraftPick(db, draft, player, { auto, now }) {
+  const n = draft.seats.length;
+  const seat = draft.seats[slotFor(draft.pickNo, n).seatIndex];
+  const next = draft.pickNo + 1;
+  const finished = next > totalPicks(draft);
+  const nextSeat = finished ? null : draft.seats[slotFor(next, n).seatIndex];
+  // Only a person gets a clock; a bot picks the moment it is its turn.
+  const deadline = nextSeat?.userId ? isoAt(now + draft.clockSeconds * 1000) : null;
+  const res = await recordPick(db, draft, { teamId: seat.teamId, player, auto }, { next, deadline, finished, now: isoAt(now) });
+  if (!res.ok) return { ok: false, reason: res.reason };
+  return {
+    ok: true,
+    seat,
+    finished,
+    pick: {
+      pickNo: draft.pickNo, teamId: seat.teamId, name: player.name, position: player.position, proTeam: player.proTeam, auto,
+    },
+  };
+}
+
+/**
+ * Redraw the pinned board and post what just happened.
+ *
+ * The draft's state is already saved by the time this runs, so a Discord
+ * failure here is logged and not thrown: the next pick, or the next check,
+ * redraws it.
+ */
+async function announceDraft(env, api, draft, made, { ping = false } = {}) {
+  if (!draft?.channelId) return;
+  try {
+    const picks = await draftPicks(env.DB, draft.id);
+    const best = draft.status === 'running' ? await availablePlayers(env.DB, draft.id, 5) : [];
+    if (draft.messageId) {
+      await api.editMessage(draft.channelId, draft.messageId, {
+        embeds: [boardEmbed({ draft, recent: picks.slice(-6).reverse(), best })],
+        components: boardComponents(draft.id, draft.status === 'running'),
+        allowed_mentions: { parse: [] },
+      });
+    }
+    const lines = made.map((m) => pickLine(m.pick, m.seat));
+    const seat = seatOnClock(draft);
+    const users = [];
+    if (draft.status === 'done') {
+      lines.push(`That was the last pick. Mock draft #${draft.id} is done.`);
+    } else if (seat?.userId && (made.length || ping)) {
+      lines.push(clockLine(draft, seat));
+      users.push(seat.userId);
+    }
+    if (lines.length) await api.postMessage(draft.channelId, lines.join('\n'), { parse: [], users });
+  } catch (err) {
+    console.warn(`Mock draft #${draft.id}: could not update the board: ${err.message}`);
+  }
+}
+
+/**
+ * Let bots pick until a person is on the clock (or the run's limit is hit),
+ * then redraw the board once. `made` carries any picks already made this run.
+ */
+export async function settleDraft(env, api, draftId, deps = {}, made = [], { ping = false } = {}) {
+  const { now = Date.now(), rand = Math.random } = deps;
+  for (let i = 0; i < MAX_BOT_PICKS_PER_RUN; i += 1) {
+    const d = await getDraft(env.DB, draftId);
+    if (!d || d.status !== 'running') break;
+    const seat = seatOnClock(d);
+    if (!seat || seat.userId) break;
+    const choice = botChoice(await availablePlayers(env.DB, d.id, 5), rand);
+    if (!choice) break;
+    const r = await makeDraftPick(env.DB, d, choice, { auto: true, now });
+    if (!r.ok) break;
+    made.push({ pick: r.pick, seat: r.seat });
+  }
+  const draft = await getDraft(env.DB, draftId);
+  if (made.length || ping) await announceDraft(env, api, draft, made, { ping });
+  return { draft, made };
+}
+
+/** Join or leave the lobby. Returns { error } or { text }. */
+async function changeSeat(env, api, cfg, draftId, userId, kind) {
+  const draft = await getDraft(env.DB, draftId);
+  if (!draft) return { error: 'That draft no longer exists.' };
+  if (draft.status !== 'lobby') return { error: 'That lobby is closed: the draft has already begun.' };
+
+  let seats;
+  let text;
+  if (kind === 'join') {
+    const link = await getLink(env.DB, cfg.season, userId);
+    if (!link) return { error: 'Link your team first with `/fantasy link`.' };
+    const idx = draft.seats.findIndex((s) => s.teamId === link.teamId);
+    if (idx < 0) return { error: 'Your linked team is not in this draft. Run `/fantasy link` again.' };
+    const seat = draft.seats[idx];
+    if (seat.userId && seat.userId !== userId) return { error: `${clean(seat.name)} already has a manager: <@${seat.userId}>.` };
+    seats = draft.seats.map((s, i) => (i === idx ? { ...s, userId } : s));
+    text = `You're in as ${clean(seat.name)}.`;
+  } else {
+    if (!draft.seats.some((s) => s.userId === userId)) return { error: 'You are not in this draft.' };
+    seats = draft.seats.map((s) => (s.userId === userId ? { ...s, userId: null } : s));
+    text = 'You left. A bot will draft your team.';
+  }
+  if (!(await updateSeats(env.DB, draft.id, draft.seatsRaw, seats))) {
+    return { error: 'Someone else changed the lobby at the same moment. Try again.' };
+  }
+  const fresh = await getDraft(env.DB, draft.id);
+  if (fresh.messageId) {
+    await api.editMessage(fresh.channelId, fresh.messageId, {
+      embeds: [lobbyEmbed(fresh)], components: lobbyComponents(fresh.id), allowed_mentions: { parse: [] },
+    }).catch((e) => console.warn(`lobby: ${e.message}`));
+  }
+  return { text };
+}
+
+/** Draw the order, freeze the pool, and start. Returns { error } or { text }. */
+async function beginFlow(env, api, cfg, draftId, deps) {
+  const { fetchPool = fantasyFetchDraftPool, now = Date.now(), rand = Math.random } = deps;
+  const draft = await getDraft(env.DB, draftId);
+  if (!draft) return { error: 'That draft no longer exists.' };
+  if (draft.status !== 'lobby') return { error: 'That draft has already begun.' };
+
+  const pool = await fetchPool(cfg, { limit: POOL_SIZE });
+  const need = totalPicks(draft);
+  if (pool.length < need) {
+    return { error: `ESPN returned only ${pool.length} draftable players and ${need} are needed. Cancel this one and start again with fewer rounds.` };
+  }
+  const seats = shuffle(draft.seats, rand);
+  const deadline = seats[0].userId ? isoAt(now + draft.clockSeconds * 1000) : null;
+  if (!(await beginDraft(env.DB, draft.id, { seats, deadline, pool }))) {
+    return { error: 'Someone else started it at the same moment.' };
+  }
+  await settleDraft(env, api, draft.id, deps, [], { ping: true });
+  return { text: 'The draft has begun.' };
+}
+
+/** A person's pick, or the best available for the "Draft best available" button. */
+async function personPick(env, api, draftId, userId, playerId, deps) {
+  const { now = Date.now() } = deps;
+  const draft = await getDraft(env.DB, draftId);
+  if (!draft) return { error: 'That draft no longer exists.' };
+  const player = playerId === null ? (await availablePlayers(env.DB, draft.id, 1))[0] ?? null : await poolPlayer(env.DB, draft.id, playerId);
+  const taken = player ? (await draftPicks(env.DB, draft.id)).some((p) => p.playerId === player.id) : false;
+  const check = validatePick({ draft, userId, player, taken });
+  if (!check.ok) return { error: check.error };
+
+  const r = await makeDraftPick(env.DB, draft, player, { auto: false, now });
+  if (!r.ok) return { error: 'Someone else got in first. Look at the board and pick again.' };
+  await settleDraft(env, api, draft.id, deps, [{ pick: r.pick, seat: r.seat }]);
+  return { text: `You drafted ${clean(player.name)}.` };
+}
+
+/**
+ * /draft start | join | begin | pick | cancel.
+ *
+ * A practice draft only: no pick is ever sent to ESPN. Everything a draft
+ * needs to say to the whole channel (the board, each pick) is posted by the
+ * bot itself; what comes back here is the private confirmation.
+ */
+export async function handleDraft(interaction, env, api, deps = {}) {
+  const { fetchRosters = fantasyFetchRosters, now = Date.now() } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const isMod = hasManageMessages(interaction.member);
+  const { name: sub, args } = subcommandOf(interaction);
+
+  if (DRAFT_MOD_ONLY.includes(sub) && !isMod) {
+    return onlyYou('Only mods can do that. You can `/draft join` the lobby and `/draft pick` on your turn.');
+  }
+
+  if (sub === 'start') {
+    const live = await activeDraft(env.DB, cfg.season);
+    if (live) {
+      return onlyYou(`Mock draft #${live.id} is already ${live.status === 'lobby' ? 'open' : 'under way'}. A mod can \`/draft cancel\` it first.`);
+    }
+    const rounds = args.rounds ?? DEFAULT_ROUNDS;
+    const clock = args.clock ?? DEFAULT_CLOCK;
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > MAX_ROUNDS) return onlyYou(`Rounds must be between 1 and ${MAX_ROUNDS}.`);
+    if (!Number.isInteger(clock) || clock < MIN_CLOCK || clock > MAX_CLOCK) return onlyYou(`The clock must be between ${MIN_CLOCK} and ${MAX_CLOCK} seconds.`);
+
+    const teams = (await fetchRosters(cfg)).teams;
+    if (teams.length < 2) return onlyYou('The league needs at least two teams for a draft.');
+    const id = await createDraft(env.DB, {
+      season: cfg.season, rounds, clockSeconds: clock, createdBy: userId, now: isoAt(now),
+      seats: teams.map((t) => ({ teamId: t.id, name: t.name, userId: null })),
+    });
+    const draft = await getDraft(env.DB, id);
+    const channel = interaction.channel_id;
+    let posted;
+    try {
+      posted = await api.postMessage(channel, '', { parse: [] }, { embeds: [lobbyEmbed(draft)], components: lobbyComponents(id) });
+    } catch (err) {
+      // A lobby nobody can see must not block starting another.
+      await setDraftStatus(env.DB, id, ['lobby'], 'cancelled', isoAt(now));
+      throw err;
+    }
+    await setDraftMessage(env.DB, id, channel, posted.id);
+    return onlyYou(`Lobby #${id} is open in <#${channel}>. Everyone presses Join, then a mod presses Begin draft.`);
+  }
+
+  const draft = await activeDraft(env.DB, cfg.season);
+  if (!draft) return onlyYou('There is no practice draft open. A mod can start one with `/draft start`.');
+
+  if (sub === 'join') {
+    const r = await changeSeat(env, api, cfg, draft.id, userId, 'join');
+    return onlyYou(r.error ?? r.text);
+  }
+  if (sub === 'begin') {
+    const r = await beginFlow(env, api, cfg, draft.id, deps);
+    return onlyYou(r.error ?? r.text);
+  }
+  if (sub === 'pick') {
+    const id = Number(args.player);
+    if (!Number.isInteger(id)) return onlyYou('Pick a player from the list as you type.');
+    const r = await personPick(env, api, draft.id, userId, id, deps);
+    return onlyYou(r.error ?? r.text);
+  }
+  if (sub === 'cancel') {
+    if (!(await setDraftStatus(env.DB, draft.id, ['lobby', 'running'], 'cancelled', isoAt(now)))) {
+      return onlyYou('Something changed that draft just now. Try again.');
+    }
+    if (draft.messageId) {
+      await api.editMessage(draft.channelId, draft.messageId, {
+        embeds: [{ title: `Mock draft #${draft.id} was cancelled`, color: 0x5b6270, description: 'Nothing was kept. A mod can run `/draft start` for another.' }],
+        components: [],
+        allowed_mentions: { parse: [] },
+      }).catch((e) => console.warn(`draft card: ${e.message}`));
+    }
+    return say(`Mock draft #${draft.id} was cancelled.`);
+  }
+  return onlyYou('Not something I handle.');
+}
+
+/**
+ * A press on one of a draft's buttons. Returns { update, data } like the trade
+ * Explore panel: `update` rewrites the message that was clicked, otherwise the
+ * reply is a new private one.
+ */
+export async function handleDraftButton(interaction, env, api, deps = {}) {
+  const refuse = (text) => ({ update: false, data: onlyYou(text) });
+  const cfg = fantasyConfig(env);
+  if (!cfg) return refuse('The fantasy league has not been connected yet.');
+  const parsed = parseDraftId(interaction.data?.custom_id);
+  if (!parsed) return refuse('Not something I handle.');
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  if (parsed.action === 'join' || parsed.action === 'leave') {
+    const r = await changeSeat(env, api, cfg, parsed.draftId, userId, parsed.action);
+    return refuse(r.error ?? r.text);
+  }
+  if (parsed.action === 'begin') {
+    if (!hasManageMessages(interaction.member)) return refuse('Only mods can begin the draft.');
+    const r = await beginFlow(env, api, cfg, parsed.draftId, deps);
+    return refuse(r.error ?? r.text);
+  }
+  if (parsed.action === 'best') {
+    const r = await personPick(env, api, parsed.draftId, userId, null, deps);
+    return refuse(r.error ?? r.text);
+  }
+
+  const draft = await getDraft(env.DB, parsed.draftId);
+  if (!draft) return refuse('That draft no longer exists.');
+
+  if (parsed.action === 'roster') {
+    const seatIndex = draft.seats.findIndex((s) => s.userId === userId);
+    if (seatIndex < 0) return refuse('You are not in this draft.');
+    return {
+      update: false,
+      data: { embeds: [rosterEmbed({ draft, seatIndex, picks: await draftPicks(env.DB, draft.id) })], flags: PRIVATE, allowed_mentions: { parse: [] } },
+    };
+  }
+
+  // board opens the full board at the current round; round:n pages through it.
+  const current = Math.min(draft.rounds, Math.max(1, slotFor(Math.min(draft.pickNo, totalPicks(draft)), draft.seats.length).round));
+  const round = parsed.action === 'round' ? Math.min(draft.rounds, Math.max(1, parsed.arg ?? current)) : current;
+  return {
+    update: parsed.action === 'round',
+    data: {
+      embeds: [roundEmbed({ draft, picks: await draftPicks(env.DB, draft.id), round })],
+      components: roundComponents(draft.id, round, draft.rounds),
+      flags: PRIVATE,
+      allowed_mentions: { parse: [] },
+    },
+  };
+}
+
+/** Autocomplete for /draft pick: the best players still on the board. */
+export async function handleDraftAutocomplete(interaction, env) {
+  const cfg = fantasyConfig(env);
+  if (!cfg) return [];
+  const { options } = subcommandOf(interaction);
+  const focused = options.find((o) => o.focused);
+  if (!focused) return [];
+  const draft = await activeDraft(env.DB, cfg.season);
+  if (!draft || draft.status !== 'running') return [];
+  const term = String(focused.value ?? '').trim();
+  return (await availablePlayers(env.DB, draft.id, 25, term)).map((p) => ({
+    name: `${p.name} (${[p.position, p.proTeam].filter(Boolean).join(', ') || '—'}) · ADP ${p.adp.toFixed(1)}`.slice(0, 100),
+    value: String(p.id),
+  }));
+}
+
+/**
+ * The once-a-minute check: auto-pick for anyone whose clock has run out, and
+ * let bots pick if the run before stopped at its limit. Does nothing, and
+ * costs one cheap query, when no draft is running.
+ */
+export async function runDraftTick(env, api, deps = {}) {
+  const { now = Date.now() } = deps;
+  const failures = [];
+  let picks = 0;
+  const live = await runningDrafts(env.DB);
+  for (const d of live) {
+    try {
+      const made = [];
+      const seat = seatOnClock(d);
+      if (seat?.userId && d.deadline && Date.parse(d.deadline) <= now) {
+        const [best] = await availablePlayers(env.DB, d.id, 1);
+        if (best) {
+          const r = await makeDraftPick(env.DB, d, best, { auto: true, now });
+          if (r.ok) made.push({ pick: r.pick, seat: r.seat });
+        }
+      }
+      const out = await settleDraft(env, api, d.id, deps, made);
+      picks += out.made.length;
+    } catch (err) {
+      console.error(`Mock draft #${d.id} tick failed: ${err.message}`);
+      failures.push(`#${d.id}: ${err.message}`);
+    }
+  }
+  // One stuck draft must not stop the others, but it must still fail the run.
+  if (failures.length) throw new Error(failures.join('; '));
+  return { drafts: live.length, picks };
+}
+
+/**
+ * Answer an interaction at once with "working..." and finish in the background.
+ *
+ * A pick can mean up to nine bot picks and two Discord calls, which will not
+ * always fit Discord's three-second window for a first reply. So the reply
+ * goes out immediately and the real answer replaces it when the work is done.
+ * `update` is for a button inside a private message that should be rewritten
+ * in place rather than answered with a new one. With no `ctx` (tests, local
+ * runs) the work is simply awaited.
+ */
+export async function respondDeferred(ctx, api, interaction, work, { update = false } = {}) {
+  const finish = async () => {
+    let result;
+    try {
+      result = await work();
+    } catch (err) {
+      console.error(err);
+      result = { update, data: onlyYou(`Could not do that: ${err.message}`) };
+    }
+    // A reply that is being edited in cannot carry flags.
+    const { flags, ...data } = result.data ?? result;
+    await api.editOriginal(interaction.application_id, interaction.token, data);
+  };
+  if (ctx?.waitUntil) ctx.waitUntil(finish().catch((e) => console.error(`deferred reply: ${e.message}`)));
+  else await finish();
+  return update ? { type: DEFERRED_UPDATE } : { type: DEFERRED_REPLY, data: { flags: PRIVATE } };
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // Handled before anything Discord-specific: Discord never calls /picks —
     // a browser does, with no signature — so this must not sit behind the
     // POST-only gate or the Ed25519 signature check below.
@@ -1356,6 +1743,27 @@ export default {
       return json({ type: REPLY, data: await handleFantasy(interaction, env) });
     }
 
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'draft') {
+      const api = createApi(env.DISCORD_TOKEN);
+      return json(await respondDeferred(ctx, api, interaction, async () => handleDraft(interaction, env, api)));
+    }
+
+    // The draft's lobby and board buttons.
+    if (interaction.type === MESSAGE_COMPONENT && parseDraftId(interaction.data?.custom_id)) {
+      const api = createApi(env.DISCORD_TOKEN);
+      const update = parseDraftId(interaction.data.custom_id).action === 'round';
+      return json(await respondDeferred(ctx, api, interaction, async () => handleDraftButton(interaction, env, api), { update }));
+    }
+
+    if (interaction.type === AUTOCOMPLETE && interaction.data?.name === 'draft') {
+      try {
+        return json({ type: AUTOCOMPLETE_RESULT, data: { choices: await handleDraftAutocomplete(interaction, env) } });
+      } catch (err) {
+        console.error(err);
+        return json({ type: AUTOCOMPLETE_RESULT, data: { choices: [] } });
+      }
+    }
+
     if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'player') {
       return json({ type: REPLY, data: await handlePlayer(interaction, env) });
     }
@@ -1464,6 +1872,13 @@ export default {
     // The frequent trigger runs only the fantasy feed. The daily one keeps
     // doing promotions and the pick'em, and is also the default when no cron
     // is named, so nothing that called this before changes behaviour.
+    // The once-a-minute draft check, before anything else: an unrecognised
+    // cron falls through to the daily job, which must never run every minute.
+    if (event?.cron === DRAFT_CRON) {
+      const out = await runDraftTick(env, api);
+      if (out.drafts) console.log(`Mock drafts: ${out.drafts} running, ${out.picks} picks made.`);
+      return;
+    }
     if (event?.cron === FANTASY_CRON) {
       // Three independent jobs on one trigger: one failing must not stop the
       // others, but it must still fail the invocation.

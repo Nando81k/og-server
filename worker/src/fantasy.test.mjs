@@ -245,7 +245,7 @@ check('the fantasy cron runs only the feed (a no-op when unconfigured)', routed 
 
 console.log('\n--- wrangler.toml and the cron string ---');
 const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
-check('both triggers are scheduled', toml.includes('crons = ["0 9 * * *", "*/10 * * * *"]'));
+check('all three triggers are scheduled', toml.includes('crons = ["0 9 * * *", "*/10 * * * *", "* * * * *"]'));
 check('FANTASY_CRON matches the string in wrangler.toml', toml.includes(`"${FANTASY_CRON}"`));
 check('no ESPN cookie ever appears in the config', !/espn_s2\s*=|swid\s*=/i.test(toml.replace(/#.*$/gm, '')));
 

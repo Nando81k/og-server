@@ -145,3 +145,59 @@ CREATE TABLE IF NOT EXISTS trade_votes (
   voted_at TEXT    NOT NULL,
   PRIMARY KEY (trade_id, user_id)
 );
+
+-- Practice (mock) drafts. Nothing here ever touches ESPN.
+--
+-- `seats` is the league's teams as [{ teamId, name, userId }], userId null for a
+-- team a bot drafts for. While the lobby is open it is in league order; when
+-- the draft begins it is shuffled and becomes the round-one pick order, and
+-- snake order is worked out from it, never stored.
+--
+-- status: 'lobby' | 'running' | 'done' | 'cancelled'
+-- pick_no is the NEXT pick to be made; deadline is when a human's clock runs
+-- out (null while a bot is on the clock).
+CREATE TABLE IF NOT EXISTS drafts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  season        INTEGER NOT NULL,
+  status        TEXT    NOT NULL,
+  rounds        INTEGER NOT NULL,
+  clock_seconds INTEGER NOT NULL,
+  seats         TEXT    NOT NULL,
+  pick_no       INTEGER NOT NULL DEFAULT 1,
+  deadline      TEXT,
+  channel_id    TEXT,
+  message_id    TEXT,
+  created_by    TEXT    NOT NULL,
+  created_at    TEXT    NOT NULL,
+  finished_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS drafts_status ON drafts (season, status);
+
+-- The players that can be drafted, frozen when the draft begins so everyone
+-- sees the same list and the same ADP for the whole draft.
+CREATE TABLE IF NOT EXISTS draft_pool (
+  draft_id   INTEGER NOT NULL,
+  player_id  INTEGER NOT NULL,
+  name       TEXT    NOT NULL,
+  position   TEXT    NOT NULL,
+  pro_team   TEXT    NOT NULL,
+  adp        REAL    NOT NULL,
+  PRIMARY KEY (draft_id, player_id)
+);
+
+-- One row per pick. The primary key means a slot can only be filled once, and
+-- the unique index means a player can only be taken once, so two people (or a
+-- person and the clock) racing for the same thing cannot both win.
+CREATE TABLE IF NOT EXISTS draft_picks (
+  draft_id    INTEGER NOT NULL,
+  pick_no     INTEGER NOT NULL,
+  team_id     INTEGER NOT NULL,
+  player_id   INTEGER NOT NULL,
+  player_name TEXT    NOT NULL,
+  position    TEXT    NOT NULL,
+  pro_team    TEXT    NOT NULL,
+  auto        INTEGER NOT NULL DEFAULT 0,
+  picked_at   TEXT    NOT NULL,
+  PRIMARY KEY (draft_id, pick_no)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS draft_picks_player ON draft_picks (draft_id, player_id);

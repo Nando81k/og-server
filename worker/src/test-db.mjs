@@ -5,7 +5,7 @@
  */
 
 export function memoryDb() {
-  const state = { links: [], trades: [], votes: [], meta: new Map(), nextId: 1 };
+  const state = { links: [], trades: [], votes: [], meta: new Map(), nextId: 1, drafts: [], pool: [], dpicks: [], nextDraft: 1 };
 
   const query = (sql, b) => {
     if (sql.includes('FROM fantasy_links WHERE season = ? AND user_id')) {
@@ -22,6 +22,28 @@ export function memoryDb() {
       return state.trades.filter((x) => x.status === 'open' && x.closes_at <= b[0]);
     }
     if (sql.includes('FROM trade_votes')) return state.votes.filter((x) => x.trade_id === b[0]);
+    if (sql.includes('FROM drafts WHERE id = ?')) return state.drafts.filter((d) => d.id === b[0]);
+    if (sql.includes("FROM drafts WHERE season = ? AND status IN ('lobby', 'running')")) {
+      return state.drafts.filter((d) => d.season === b[0] && ['lobby', 'running'].includes(d.status)).sort((x, y) => y.id - x.id).slice(0, 1);
+    }
+    if (sql.includes("FROM drafts WHERE status = 'running'")) return state.drafts.filter((d) => d.status === 'running');
+    if (sql.includes('FROM draft_pool p')) {
+      const like = sql.includes('LIKE');
+      const [draftId, , a, c] = b;
+      const term = like ? String(a).replace(/%/g, '').toLowerCase() : '';
+      const limit = like ? c : a;
+      const taken = new Set(state.dpicks.filter((k) => k.draft_id === draftId).map((k) => k.player_id));
+      return state.pool
+        .filter((p) => p.draft_id === draftId && !taken.has(p.player_id) && (!like || p.name.toLowerCase().includes(term)))
+        .sort((x, y) => x.adp - y.adp || x.player_id - y.player_id)
+        .slice(0, limit);
+    }
+    if (sql.includes('FROM draft_pool WHERE draft_id = ? AND player_id = ?')) {
+      return state.pool.filter((p) => p.draft_id === b[0] && p.player_id === b[1]);
+    }
+    if (sql.includes('FROM draft_picks WHERE draft_id = ?')) {
+      return state.dpicks.filter((k) => k.draft_id === b[0]).sort((x, y) => x.pick_no - y.pick_no);
+    }
     if (sql.includes('FROM meta')) {
       const val = state.meta.get(b[0]);
       return val ? [{ value: val }] : [];
@@ -69,6 +91,66 @@ export function memoryDb() {
       state.votes.push({ trade_id: b[0], user_id: b[1], vote: b[2], voted_at: b[3] });
       return { changes: 1 };
     }
+    if (sql.includes('INSERT INTO drafts')) {
+      const id = state.nextDraft++;
+      state.drafts.push({
+        id, season: b[0], status: 'lobby', rounds: b[1], clock_seconds: b[2], seats: b[3], pick_no: 1, deadline: null,
+        channel_id: null, message_id: null, created_by: b[4], created_at: b[5], finished_at: null,
+      });
+      return { changes: 1, last_row_id: id };
+    }
+    if (sql.includes('UPDATE drafts SET channel_id')) {
+      const d = state.drafts.find((x) => x.id === b[2]);
+      if (!d) return { changes: 0 };
+      d.channel_id = b[0]; d.message_id = b[1];
+      return { changes: 1 };
+    }
+    if (sql.includes("UPDATE drafts SET seats = ? WHERE id = ? AND seats = ?")) {
+      const d = state.drafts.find((x) => x.id === b[1] && x.seats === b[2] && x.status === 'lobby');
+      if (!d) return { changes: 0 };
+      d.seats = b[0];
+      return { changes: 1 };
+    }
+    if (sql.includes("UPDATE drafts SET status = 'running'")) {
+      const d = state.drafts.find((x) => x.id === b[2] && x.status === 'lobby');
+      if (!d) return { changes: 0 };
+      d.status = 'running'; d.seats = b[0]; d.pick_no = 1; d.deadline = b[1];
+      return { changes: 1 };
+    }
+    if (sql.includes('UPDATE drafts SET status = ?, finished_at = ?, deadline = NULL')) {
+      const d = state.drafts.find((x) => x.id === b[2] && b.slice(3).includes(x.status));
+      if (!d) return { changes: 0 };
+      d.status = b[0]; d.finished_at = b[1]; d.deadline = null;
+      return { changes: 1 };
+    }
+    if (sql.includes('INSERT INTO draft_pool')) {
+      for (let i = 0; i < b.length; i += 6) {
+        state.pool.push({ draft_id: b[i], player_id: b[i + 1], name: b[i + 2], position: b[i + 3], pro_team: b[i + 4], adp: b[i + 5] });
+      }
+      return { changes: b.length / 6 };
+    }
+    if (sql.includes('INSERT INTO draft_picks')) {
+      if (state.dpicks.some((k) => k.draft_id === b[0] && (k.pick_no === b[1] || k.player_id === b[3]))) {
+        throw new Error('UNIQUE constraint failed: draft_picks');
+      }
+      state.dpicks.push({
+        draft_id: b[0], pick_no: b[1], team_id: b[2], player_id: b[3], player_name: b[4], position: b[5],
+        pro_team: b[6], auto: b[7], picked_at: b[8],
+      });
+      return { changes: 1 };
+    }
+    if (sql.includes("UPDATE drafts SET pick_no = ?, deadline = NULL, status = 'done'")) {
+      const d = state.drafts.find((x) => x.id === b[2] && x.pick_no === b[3]);
+      if (!d) return { changes: 0 };
+      d.pick_no = b[0]; d.deadline = null; d.status = 'done'; d.finished_at = b[1];
+      return { changes: 1 };
+    }
+    if (sql.includes('UPDATE drafts SET pick_no = ?, deadline = ?')) {
+      const d = state.drafts.find((x) => x.id === b[2] && x.pick_no === b[3]);
+      if (!d) return { changes: 0 };
+      d.pick_no = b[0]; d.deadline = b[1];
+      return { changes: 1 };
+    }
     if (sql.includes('INSERT INTO meta')) {
       if (state.meta.has(b[0])) return { changes: 0 };
       state.meta.set(b[0], b[1]);
@@ -87,6 +169,11 @@ export function memoryDb() {
         async all() { return { results: query(sql, binds) }; },
       };
       return stmt;
+    },
+    async batch(statements) {
+      const out = [];
+      for (const s of statements) out.push(await s.run());
+      return out;
     },
   };
 }

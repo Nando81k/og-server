@@ -158,6 +158,20 @@ export const COMMANDS = [
     ],
   },
   {
+    name: 'player',
+    description: 'A player’s bio, fantasy rank and recent stats',
+    options: [
+      {
+        name: 'name',
+        description: 'Start typing a name',
+        type: STRING,
+        required: true,
+        // Players on a team in this league, resolved live from ESPN.
+        autocomplete: true,
+      },
+    ],
+  },
+  {
     name: 'trade',
     description: 'Propose a fantasy trade and let the server vote on it',
     // Proposing and cancelling your own are for any manager, and Discord can

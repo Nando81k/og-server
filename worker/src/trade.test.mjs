@@ -16,6 +16,7 @@ import {
   handleFantasy, handleTrade, handleTradeVote, runTradeClose, runTradeSync, handleFantasyAutocomplete,
 } from './index.mjs';
 import { COMMANDS, TRADE_MOD_ONLY } from '../../shared/commands.mjs';
+import { memoryDb, stubApi, who, MOD, cmd } from './test-db.mjs';
 
 const fails = [];
 const check = (l, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + l); if (!c) fails.push(l); };
@@ -48,11 +49,12 @@ check('every decision explains itself', [tl(0, 0, 0), tl(3, 0, 0), tl(6, 3, 0), 
 console.log('\n--- button ids ---');
 check('round-trips', JSON.stringify(parseCustomId(customId(12, 'fair'))) === '{"tradeId":12,"vote":"fair"}');
 check('rejects other ids', parseCustomId('lfg:12:fair') === null && parseCustomId('trade:x:fair') === null);
+check('Explore is not a vote', parseCustomId('trade:12:explore') === null);
 check('rejects an unknown vote', parseCustomId('trade:12:meh') === null);
 check('rejects nothing', parseCustomId(undefined) === null);
 const comps = voteComponents(12);
-check('one row of three buttons', comps.length === 1 && comps[0].components.length === 3);
-check('every button carries its own id', comps[0].components.map((c) => c.custom_id).join() === 'trade:12:fair,trade:12:collusion,trade:12:robbery');
+check('one row: the three votes and Explore', comps.length === 1 && comps[0].components.length === 4);
+check('every button carries its own id', comps[0].components.map((c) => c.custom_id).join() === 'trade:12:fair,trade:12:collusion,trade:12:robbery,trade:12:explore');
 check('custom ids fit Discord\'s 100 characters', comps[0].components.every((c) => c.custom_id.length <= 100));
 check('labels fit Discord\'s 80', comps[0].components.every((c) => c.label.length <= 80));
 
@@ -126,114 +128,6 @@ check('adds and drops are not trades', findCompletedTrades([act(5, 100, 'dropped
 check('nothing processed, nothing matched', findCompletedTrades([], [lt]).length === 0);
 
 // ------------------------------------------------------------- the handlers
-function memoryDb() {
-  const state = { links: [], trades: [], votes: [], meta: new Map(), nextId: 1 };
-
-  const query = (sql, b) => {
-    if (sql.includes('FROM fantasy_links WHERE season = ? AND user_id')) {
-      return state.links.filter((l) => l.season === b[0] && l.user_id === b[1]);
-    }
-    if (sql.includes('FROM fantasy_links WHERE season = ? AND team_id')) {
-      return state.links.filter((l) => l.season === b[0] && l.team_id === b[1]);
-    }
-    if (sql.includes('FROM trades WHERE id = ?')) return state.trades.filter((x) => x.id === b[0]);
-    if (sql.includes("status IN ('open'")) {
-      return state.trades.filter((x) => x.season === b[0] && ['open', 'approved', 'flagged', 'no_quorum'].includes(x.status));
-    }
-    if (sql.includes("status = 'open' AND closes_at <= ?")) {
-      return state.trades.filter((x) => x.status === 'open' && x.closes_at <= b[0]);
-    }
-    if (sql.includes('FROM trade_votes')) return state.votes.filter((x) => x.trade_id === b[0]);
-    if (sql.includes('FROM meta')) {
-      const val = state.meta.get(b[0]);
-      return val ? [{ value: val }] : [];
-    }
-    throw new Error(`the fake database has no answer for: ${sql}`);
-  };
-
-  const apply = (sql, b) => {
-    if (sql.includes('DELETE FROM fantasy_links')) {
-      const before = state.links.length;
-      state.links = state.links.filter((l) => !(l.season === b[0] && l.team_id === b[1]));
-      return { changes: before - state.links.length };
-    }
-    if (sql.includes('INSERT INTO fantasy_links')) {
-      const found = state.links.find((l) => l.user_id === b[0] && l.season === b[1]);
-      if (found) { found.team_id = b[2]; found.team_name = b[3]; return { changes: 1 }; }
-      if (state.links.some((l) => l.season === b[1] && l.team_id === b[2])) throw new Error('UNIQUE constraint failed: fantasy_links.team_id');
-      state.links.push({ user_id: b[0], season: b[1], team_id: b[2], team_name: b[3], linked_at: b[4] });
-      return { changes: 1 };
-    }
-    if (sql.includes('INSERT INTO trades')) {
-      const id = state.nextId++;
-      state.trades.push({
-        id, season: b[0], proposer_id: b[1], from_team: b[2], to_team: b[3], from_name: b[4], to_name: b[5],
-        give: b[6], get: b[7], note: b[8], status: 'open', channel_id: null, message_id: null,
-        created_at: b[9], closes_at: b[10], resolved_at: null,
-      });
-      return { changes: 1, last_row_id: id };
-    }
-    if (sql.includes('UPDATE trades SET channel_id')) {
-      const x = state.trades.find((y) => y.id === b[2]);
-      if (!x) return { changes: 0 };
-      x.channel_id = b[0]; x.message_id = b[1];
-      return { changes: 1 };
-    }
-    if (sql.includes('UPDATE trades SET status')) {
-      const x = state.trades.find((y) => y.id === b[2] && b.slice(3).includes(y.status));
-      if (!x) return { changes: 0 };
-      x.status = b[0]; x.resolved_at = b[1];
-      return { changes: 1 };
-    }
-    if (sql.includes('INSERT INTO trade_votes')) {
-      const found = state.votes.find((x) => x.trade_id === b[0] && x.user_id === b[1]);
-      if (found) { found.vote = b[2]; return { changes: 1 }; }
-      state.votes.push({ trade_id: b[0], user_id: b[1], vote: b[2], voted_at: b[3] });
-      return { changes: 1 };
-    }
-    if (sql.includes('INSERT INTO meta')) {
-      if (state.meta.has(b[0])) return { changes: 0 };
-      state.meta.set(b[0], b[1]);
-      return { changes: 1 };
-    }
-    throw new Error(`the fake database cannot run: ${sql}`);
-  };
-
-  return {
-    state,
-    prepare(sql) {
-      let binds = [];
-      const stmt = {
-        bind(...a) { binds = a; return stmt; },
-        async run() { return { success: true, meta: apply(sql, binds) }; },
-        async all() { return { results: query(sql, binds) }; },
-      };
-      return stmt;
-    },
-  };
-}
-
-function stubApi() {
-  const api = { posted: [], edited: [], n: 0, failEdit: false, failPost: false };
-  api.postMessage = async (channel, content, mentions, extra) => {
-    if (api.failPost) throw new Error('discord down');
-    api.posted.push({ channel, content, mentions, extra });
-    return { id: `m${++api.n}` };
-  };
-  api.editMessage = async (channel, id, body) => {
-    if (api.failEdit) throw new Error('discord down');
-    api.edited.push({ channel, id, body });
-    return {};
-  };
-  return api;
-}
-
-const MANAGE_MESSAGES = String(1 << 13);
-const who = (id, mod = false) => ({ user: { id, username: id }, permissions: mod ? MANAGE_MESSAGES : '0' });
-const MOD = who('mod', true);
-const sub = (name, args) => ({ name, options: Object.entries(args ?? {}).map(([k, val]) => ({ name: k, value: val })) });
-const cmd = (name, subName, args, member) => ({ data: { name, options: [sub(subName, args)] }, member, channel_id: '555' });
-
 const NOW = Date.parse('2027-01-01T12:00:00Z');
 const env0 = () => ({ FANTASY_LEAGUE_ID: '123', FANTASY_SEASON: '2027', TRADE_CHANNEL_ID: '777', DB: memoryDb() });
 const stubRosters = async () => rosters;
@@ -280,7 +174,7 @@ console.log('\n--- /trade propose ---');
   let out = await propose(env, api, 'u1', GOOD);
   check('a good proposal is accepted', out.flags === 64 && out.content.includes('#1') && out.content.includes('<#777>'));
   check('the card is posted once, to the trade channel', api.posted.length === 1 && api.posted[0].channel === '777');
-  check('the card carries the vote buttons', api.posted[0].extra.components[0].components.length === 3);
+  check('the card carries the vote buttons and Explore', api.posted[0].extra.components[0].components.length === 4);
   check('the card pings only the other manager', api.posted[0].mentions.parse.length === 0 && api.posted[0].mentions.users.join() === 'u2');
   check('the card shows the deal', api.posted[0].content.includes('Marcus Vale') && api.posted[0].content.includes('Theo Brandt'));
   const row = env.DB.state.trades[0];
@@ -345,7 +239,7 @@ const press = (tradeId, vote, userId, extra = {}) => ({
   check('a vote is recorded privately', out.flags === 64 && out.content.includes('**Fair**'));
   check('the card is redrawn with the vote', api.edited.length === 1 && /Fair\s+█+\s+1/.test(api.edited[0].body.content));
   check('the redraw edits the card\'s own message', api.edited[0].id === 'm1' && api.edited[0].channel === '777');
-  check('the redraw keeps the buttons', api.edited[0].body.components[0].components.length === 3);
+  check('the redraw keeps the buttons', api.edited[0].body.components[0].components.length === 4);
   check('the redraw pings nobody', api.edited[0].body.allowed_mentions.parse.length === 0);
   check('the vote is stored once', env.DB.state.votes.length === 1);
   await handleTradeVote(press(1, 'robbery', 'u3'), env, api, { now: NOW });

@@ -22,16 +22,21 @@ export function show(value, cat) {
 /**
  * The per-game line to use for a player, and what to call it.
  *
- * This season once he has played; last season before that, so a card is still
- * useful in October. Null when there is neither, which is a rookie or a player
- * back from a long absence, and the caller says so rather than printing zeros.
+ * This season once he has played. Before that, ESPN's own projection for the
+ * season, which says more about this year than last year's numbers do, then
+ * last season. Null when there is none of them, which is a rookie ESPN has not
+ * projected, and the caller says so rather than printing zeros.
  */
 export function bestLine(card) {
   const s = card?.stats ?? {};
   if (s.season) return { line: s.season, label: 'this season' };
+  if (s.projected) return { line: s.projected, label: 'projected' };
   if (s.prior) return { line: s.prior, label: 'last season' };
   return { line: null, label: null };
 }
+
+/** How a non-actual line is flagged next to a player's name. */
+export const LABEL_NOTE = { projected: ' (proj.)', 'last season': ' (last season)' };
 
 const lastName = (name) => tidy(name).split(' ').slice(-1)[0].slice(0, 7);
 
@@ -48,8 +53,8 @@ function trend(base, recent, cat) {
   return better ? ARROW_UP : ARROW_DOWN;
 }
 
-/** The public /player card. */
-export function playerMessage({ card, owner = null, bio = null }) {
+/** The public /player card. `cats` are the categories this league scores. */
+export function playerMessage({ card, owner = null, bio = null, cats = CATEGORIES }) {
   const lines = [
     `**${tidy(card.name)}** — ${[card.position, card.proTeam, card.injury].filter(Boolean).join(' · ')}`,
   ];
@@ -72,37 +77,42 @@ export function playerMessage({ card, owner = null, bio = null }) {
 
   const { line: base, label } = bestLine(card);
   if (!base) {
-    lines.push('', 'No stats yet. He has not played this season or last.');
+    lines.push('', 'No stats yet. ESPN has no games or projection for him.');
     return lines.join('\n');
   }
-  const l15 = card.stats.season ? card.stats.last15 : null;
-  const l7 = card.stats.season ? card.stats.last7 : null;
 
-  const head = ['', card.stats.season ? 'Season' : 'Last yr', l15 ? 'Last 15' : null, l7 ? 'Last 7' : null]
-    .filter((h) => h !== null);
+  // Columns: once he has played, season / last 15 / last 7; before that, the
+  // projection and last season side by side.
+  const played = label === 'this season';
+  const columns = played
+    ? [['Season', card.stats.season], ['Last 15', card.stats.last15], ['Last 7', card.stats.last7]]
+    : [['Proj.', card.stats.projected], ['Last yr', card.stats.prior]];
+  const shown = columns.filter(([, line]) => line);
+  const l7 = played ? card.stats.last7 : null;
+
   const widths = [5, 9, 9, 8];
-  const rows = [head.map((h, i) => h.padEnd(widths[i])).join('')];
-  for (const cat of CATEGORIES) {
-    const cells = [cat.label, show(base[cat.key], cat)];
-    if (l15) cells.push(show(l15[cat.key], cat));
-    if (l7) cells.push(show(l7[cat.key], cat));
+  const rows = [['', ...shown.map(([t]) => t)].map((h, i) => h.padEnd(widths[i])).join('')];
+  for (const cat of cats) {
+    const cells = [cat.label, ...shown.map(([, line]) => show(line[cat.key], cat))];
     let row = cells.map((c, i) => String(c).padEnd(widths[i])).join('');
     if (l7) row += trend(base[cat.key], l7[cat.key], cat);
     rows.push(row);
   }
   lines.push('```', ...rows, '```');
   lines.push(
-    label === 'last season'
-      ? 'Showing last season: no games played yet this season.'
-      : `Per game, ${base.gp ?? '?'} games this season. Arrows compare the last 7 games to the season.`
+    played
+      ? `Per game, ${base.gp ?? '?'} games this season. Arrows compare the last 7 games to the season.`
+      : label === 'projected'
+        ? 'No games played yet this season, so this shows ESPN\'s projection beside last season.'
+        : 'Showing last season: no games played yet this season and no projection.'
   );
   return lines.join('\n');
 }
 
 /** Counting stats added up across a side, with null counted as zero. */
-export function totals(entries) {
+export function totals(entries, cats = CATEGORIES) {
   const out = {};
-  for (const cat of CATEGORIES) {
+  for (const cat of cats) {
     if (cat.pct) continue;
     const values = entries.map((e) => e.line?.[cat.key]).filter((v) => typeof v === 'number');
     out[cat.key] = values.length ? values.reduce((a, b) => a + b, 0) : null;
@@ -114,10 +124,10 @@ export function totals(entries) {
  * What the proposer gains or loses in each counting category: what comes in
  * minus what goes out, with `better` already flipped for turnovers.
  */
-export function netFor(giving, getting) {
-  const out = totals(giving);
-  const inn = totals(getting);
-  return CATEGORIES.filter((c) => !c.pct).map((cat) => {
+export function netFor(giving, getting, cats = CATEGORIES) {
+  const out = totals(giving, cats);
+  const inn = totals(getting, cats);
+  return cats.filter((c) => !c.pct).map((cat) => {
     const delta = (inn[cat.key] ?? 0) - (out[cat.key] ?? 0);
     const rounded = Math.round(delta * 10) / 10;
     return {
@@ -133,11 +143,11 @@ export function netFor(giving, getting) {
 const signed = (n) => `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
 
 /** One side of a trade as a table: a column per player, and a Total column. */
-export function sideTable(title, entries) {
+export function sideTable(title, entries, cats = CATEGORIES) {
   const w = 8;
   const head = ''.padEnd(5) + entries.map((e) => lastName(e.card.name).padEnd(w)).join('') + 'Total';
-  const sums = totals(entries);
-  const rows = CATEGORIES.map((cat) => {
+  const sums = totals(entries, cats);
+  const rows = cats.map((cat) => {
     const cells = entries.map((e) => show(e.line?.[cat.key], cat).padEnd(w)).join('');
     return cat.label.padEnd(5) + cells + (cat.pct ? '' : show(sums[cat.key], cat));
   });

@@ -183,6 +183,26 @@ the mod who ran it sees the reply. Run it once after deploying and keep the
 output: it is what the stats charts and the trade-impact estimate get built
 against.
 
+## What the real league told us
+
+`/fantasy debug` against the real league (before the draft) settled several
+guesses, and the bot now follows them:
+
+- **The league scores 8 categories, with no turnovers** (head-to-head, most
+  categories won). Tables, the net and the Explore panel show only the
+  categories in the league's own settings; if the settings can't be read they
+  fall back to all nine.
+- **Before the first game** a player's card shows ESPN's projection beside last
+  season, not last season alone.
+- **`/player` finds anyone**, drafted or not, using ESPN's player search from
+  three letters on (confirmed working). Players on a team in the league are
+  always matched locally and show their team.
+- **Confirmed:** the trade deadline field, ownership percentage, the last
+  7/15/30 windows, game-by-game logs, and the bio page (height, weight, age;
+  not college or experience).
+- **Not available:** per-season stats further back than last season came back
+  empty, so a multi-season chart would need another source.
+
 ## Tests
 
 ```bash

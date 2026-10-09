@@ -180,7 +180,8 @@ export const COMMANDS = [
         description: 'Start typing a name',
         type: STRING,
         required: true,
-        // Players on a team in this league, resolved live from ESPN.
+        // Any player ESPN knows, searched live from three letters; players on a
+        // team in this league are always matched locally.
         autocomplete: true,
       },
     ],

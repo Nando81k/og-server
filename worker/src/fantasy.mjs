@@ -228,7 +228,18 @@ export function parseRosters(json) {
       .filter((p) => p.id !== undefined && p.name),
   }));
   const raw = json.settings?.tradeSettings?.deadlineDate;
-  return { teams, tradeDeadline: typeof raw === 'number' && raw > 0 ? raw : null };
+  // The categories this league actually scores, from its settings. A league is
+  // free to leave one out (this one has no turnovers), and a table that shows
+  // a category nobody is playing for is noise at best.
+  const items = json.settings?.scoringSettings?.scoringItems;
+  const scored = Array.isArray(items)
+    ? CATEGORIES.filter((c) => items.some((i) => Number(i.statId) === Number(STAT_ID[c.key]))).map((c) => c.key)
+    : [];
+  return {
+    teams,
+    tradeDeadline: typeof raw === 'number' && raw > 0 ? raw : null,
+    categories: scored.length ? scored : null,
+  };
 }
 
 // Autocomplete gets about three seconds for the whole round trip and fires on
@@ -277,6 +288,17 @@ export const CATEGORIES = [
   { key: 'ft', label: 'FT%', pct: true, lowerIsBetter: false },
   { key: 'to', label: 'TO', pct: false, lowerIsBetter: true },
 ];
+
+/**
+ * The categories to show: the league's own when known, else all nine.
+ * `keys` is the list parseRosters reports; anything unrecognised falls back
+ * rather than leaving a table with no rows.
+ */
+export function categoriesFrom(keys) {
+  if (!Array.isArray(keys) || keys.length === 0) return CATEGORIES;
+  const list = CATEGORIES.filter((c) => keys.includes(c.key));
+  return list.length ? list : CATEGORIES;
+}
 
 /**
  * One split's per-game line, or null when there is nothing to show.
@@ -335,6 +357,9 @@ export function parsePlayerCards(json, season) {
         last7: split('01', season),
         last15: split('02', season),
         last30: split('03', season),
+        // ESPN's own projection for this season, per game. It is what there is
+        // to show before the first game, and a better stand-in than last season.
+        projected: split('10', season),
         prior: split('00', season - 1),
       },
     });
@@ -374,6 +399,55 @@ export async function fetchPlayerCards(cfg, ids, { ttlMs = 300_000, now = Date.n
   });
   const value = parsePlayerCards(json, year);
   if (ttlMs > 0) cardCache = { key, at: now, value };
+  return value;
+}
+
+// Autocomplete asks on every keystroke, and the same few prefixes repeat, so
+// recent searches are kept for a minute.
+let searchCache = new Map();
+
+export function clearSearchCache() {
+  searchCache = new Map();
+}
+
+/**
+ * Players matching a name, whether or not anyone has drafted them.
+ *
+ * ESPN's own player search (the view its web pages use), most-owned first, so
+ * "jok" finds the star before the journeyman. Confirmed against the real
+ * league: a search for "Jokic" returned him, rostered or not.
+ */
+export async function searchPlayers(cfg, term, { ttlMs = 60_000, now = Date.now(), limit = 15, ...deps } = {}) {
+  const key = `${cfg.leagueId}:${cfg.season}:${String(term).toLowerCase()}`;
+  const hit = searchCache.get(key);
+  if (ttlMs > 0 && hit && now - hit.at < ttlMs) return hit.value;
+  const json = await get(cfg, {
+    views: ['kona_player_info'],
+    filter: {
+      players: {
+        filterName: { value: String(term) },
+        filterStatus: { value: ['FREEAGENT', 'WAIVERS', 'ONTEAM'] },
+        limit,
+        sortPercOwned: { sortPriority: 1, sortAsc: false },
+      },
+    },
+    unwrap: true,
+    ...deps,
+  });
+  if (!Array.isArray(json?.players)) throw new Error('Malformed payload: missing players');
+  const value = json.players
+    .map((e) => e.player ?? e)
+    .filter((p) => p.id !== undefined && p.fullName)
+    .map((p) => ({
+      id: p.id,
+      name: p.fullName,
+      position: POSITIONS[(p.defaultPositionId ?? 0) - 1] ?? '',
+      proTeam: PRO_TEAMS[p.proTeamId] ?? '',
+    }));
+  if (ttlMs > 0) {
+    if (searchCache.size > 200) searchCache = new Map();
+    searchCache.set(key, { at: now, value });
+  }
   return value;
 }
 

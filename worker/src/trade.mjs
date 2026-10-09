@@ -11,7 +11,7 @@
  * managers (or the commissioner, in ESPN) act on that.
  */
 
-import { bestLine, netFor, sideTable, netBlock, show, tidy } from './player.mjs';
+import { bestLine, netFor, sideTable, netBlock, show, tidy, LABEL_NOTE } from './player.mjs';
 import { CATEGORIES } from './fantasy.mjs';
 
 export const VOTES = ['fair', 'collusion', 'robbery'];
@@ -303,7 +303,7 @@ function withCards(players, cards) {
   });
 }
 
-function overviewTab(trade, giving, getting) {
+function overviewTab(trade, giving, getting, cats) {
   const block = (title, entries) => {
     const out = [`**${tidy(title)}**`];
     for (const e of entries) {
@@ -314,13 +314,13 @@ function overviewTab(trade, giving, getting) {
       out.push(`• **${tidy(nameOf(c, '?'))}** (${meta})${facts ? ` — ${facts}` : ''}`);
       out.push(
         e.line
-          ? `   ${show(e.line.pts, CATEGORIES[0])} pts · ${show(e.line.reb, CATEGORIES[1])} reb · ${show(e.line.ast, CATEGORIES[2])} ast${e.label === 'last season' ? ' (last season)' : ''}`
+          ? `   ${cats.slice(0, 3).map((k) => `${show(e.line[k.key], k)} ${k.label.toLowerCase()}`).join(' · ')}${LABEL_NOTE[e.label] ?? ''}`
           : '   no stats yet'
       );
     }
     return out.join('\n');
   };
-  const net = netFor(giving, getting);
+  const net = netFor(giving, getting, cats);
   const better = net.filter((n) => n.better === true).map((n) => n.label);
   const worse = net.filter((n) => n.better === false).map((n) => n.label);
   return [
@@ -330,11 +330,11 @@ function overviewTab(trade, giving, getting) {
   ].join('\n\n');
 }
 
-function playersTab(trade, giving, getting) {
+function playersTab(trade, giving, getting, cats) {
   return [
-    sideTable(`${trade.fromName} sends`, giving),
-    sideTable(`${trade.toName} sends`, getting),
-    netBlock(trade.fromName, netFor(giving, getting)),
+    sideTable(`${trade.fromName} sends`, giving, cats),
+    sideTable(`${trade.toName} sends`, getting, cats),
+    netBlock(trade.fromName, netFor(giving, getting, cats)),
   ].join('\n');
 }
 
@@ -342,16 +342,16 @@ function playersTab(trade, giving, getting) {
  * The private Explore panel for a trade: the facts a voter needs, so the vote
  * can be an informed one. `cards` is a Map of player id to parsed card.
  */
-export function exploreMessage({ trade, cards, tab = 'overview', tally, open }) {
+export function exploreMessage({ trade, cards, tab = 'overview', tally, open, cats = CATEGORIES }) {
   const giving = withCards(trade.give, cards);
   const getting = withCards(trade.get, cards);
   const status = open
     ? `Voting closes <t:${epoch(trade.closesAt)}:R> · ${tally.total} vote${tally.total === 1 ? '' : 's'} so far`
     : `Voting is closed (${trade.status.replace('_', ' ')}).`;
-  const note = [...giving, ...getting].some((e) => e.label === 'last season')
-    ? '\n*Some players have no games yet this season, so last season is shown.*'
+  const note = [...giving, ...getting].some((e) => e.label === 'last season' || e.label === 'projected')
+    ? '\n*Some players have no games yet this season, so ESPN\'s projection or last season is shown.*'
     : '';
-  const body = tab === 'players' ? playersTab(trade, giving, getting) : overviewTab(trade, giving, getting);
+  const body = tab === 'players' ? playersTab(trade, giving, getting, cats) : overviewTab(trade, giving, getting, cats);
   const text = `**Trade #${trade.id} · Explore** — ${clean(trade.fromName)} ⇄ ${clean(trade.toName)}\n${status}${note}\n\n${body}`;
   // Discord rejects anything over 2000 characters outright, so a long name or
   // six players cannot be allowed to turn the whole panel into an error.

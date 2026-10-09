@@ -10,6 +10,7 @@
 
 import {
   parsePlayerCards, fetchPlayerCards, clearCardCache, fetchBio,
+  parseRosters, categoriesFrom, CATEGORIES, searchPlayers, clearSearchCache,
 } from './fantasy.mjs';
 import {
   show, bestLine, playerMessage, totals, netFor, sideTable, netBlock, tidy,
@@ -61,6 +62,13 @@ const payload = {
     }),
     // A split that exists but has no games in it must not read as zeros.
     raw(201, 'Dario Reyes', { stats: [splitOf('002027', avg(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))] }),
+    // Nothing yet this season, but ESPN has projected him.
+    raw(150, 'Pat Proj', {
+      stats: [
+        splitOf('102027', avg(15.5, 6.5, 3.5, 1.1, 0.6, 1.4, 0.480, 0.800, 1.8, 28.0, 82)),
+        splitOf('002026', avg(13.0, 5.5, 3.0, 1.0, 0.5, 1.2, 0.470, 0.790, 1.7, 26.0, 60)),
+      ],
+    }),
     raw(999, 'Ruth Rookie', {}),
     { id: 5, player: { id: 5 } }, // no name: dropped
   ],
@@ -69,7 +77,7 @@ const payload = {
 console.log('--- parsing player cards ---');
 const cards = parsePlayerCards(payload, 2027);
 const vale = cards.get(100);
-check('keyed by player id, nameless entries dropped', cards.size === 5 && !cards.has(5));
+check('keyed by player id, nameless entries dropped', cards.size === 6 && !cards.has(5));
 check('name, position and team are decoded', vale.name === 'Marcus Vale' && vale.position === 'C' && vale.proTeam === 'LAL');
 check('position follows ESPN\'s 1-based id', cards.get(101).position === 'SF' && cards.get(200).position === 'PG');
 check('team follows ESPN\'s team id', cards.get(200).proTeam === 'NYK');
@@ -92,6 +100,8 @@ check('last season is matched too', vale.stats.prior.pts === 17.5);
 check('a split for another season is not used',
   parsePlayerCards({ players: [raw(3, 'C D', { stats: [{ ...splitOf('002026', avg(9, 1, 1, 1, 1, 1, .5, .5, 1, 20, 10)) }] })] }, 2027).get(3).stats.season === null);
 check('no games this season means no season line', cards.get(101).stats.season === null && cards.get(101).stats.prior.pts === 11.0);
+check('the projection is read per game', cards.get(150).stats.projected.pts === 15.5 && cards.get(150).stats.projected.gp === 82);
+check('a player with no projection has none', vale.stats.projected === null);
 check('a zero-game split is null, not a row of zeros', cards.get(201).stats.season === null);
 check('a player with nothing has all-null stats', Object.values(cards.get(999).stats).every((x) => x === null));
 check('rejects a payload with no players', await throws(() => parsePlayerCards({}, 2027)));
@@ -151,7 +161,8 @@ check('a missing value is a dash', show(null, cat) === '—' && show(undefined, 
 check('tidy removes backticks and extra space', tidy('  a`b   c ') === "a'b c");
 check('tidy cuts to length', tidy('x'.repeat(300), 40).length === 40);
 check('best line is this season when there is one', bestLine(vale).label === 'this season');
-check('best line is last season before that', bestLine(cards.get(101)).label === 'last season');
+check('best line is the projection before the season starts', bestLine(cards.get(150)).label === 'projected' && bestLine(cards.get(150)).line.pts === 15.5);
+check('best line is last season when there is no projection', bestLine(cards.get(101)).label === 'last season');
 check('best line is nothing for a player with no stats', bestLine(cards.get(999)).line === null);
 check('best line copes with a missing card', bestLine(undefined).line === null);
 
@@ -178,6 +189,11 @@ text = playerMessage({ card: cards.get(101), owner: 'T', bio: null });
 check('before opening night it shows last season', /Last yr/.test(text) && text.includes('Showing last season'));
 check('and offers no recent columns', !text.includes('Last 15') && !text.includes('Last 7'));
 check('and still has the numbers', /^PTS\s+11\.0/m.test(text));
+text = playerMessage({ card: cards.get(150), owner: null, bio: null });
+check('before the season it shows the projection beside last season', /Proj\.\s+Last yr/.test(text) && /^PTS\s+15\.5\s+13\.0/m.test(text));
+check('and says so', text.includes('ESPN\'s projection'));
+check('with no arrows, since there is nothing recent to compare', !/[↑↓→]/.test(text));
+check('and no recent-games columns', !text.includes('Last 15') && !text.includes('Last 7'));
 text = playerMessage({ card: cards.get(999), owner: null, bio: null });
 check('no stats says so rather than printing zeros', text.includes('No stats yet') && !text.includes('```'));
 check('a rookie with no rank prints no rank', !text.includes('ESPN rank'));
@@ -269,6 +285,7 @@ const rosters = {
 };
 const stubRosters = async () => rosters;
 const stubCards = async () => cards;
+const noSearch = async () => [];
 const env0 = () => ({ FANTASY_LEAGUE_ID: '123', FANTASY_SEASON: '2027', TRADE_CHANNEL_ID: '777', DB: memoryDb() });
 const NOW = Date.parse('2027-01-01T12:00:00Z');
 
@@ -300,19 +317,19 @@ console.log('\n--- /player autocomplete ---');
 {
   const env = env0();
   const ac = (typed) => ({ data: { name: 'player', options: [{ name: 'name', value: typed, focused: true }] } });
-  let c = await handlePlayerAutocomplete(ac(''), env, { fetchRosters: stubRosters });
+  let c = await handlePlayerAutocomplete(ac(''), env, { fetchRosters: stubRosters, searchPlayers: noSearch });
   check('offers everyone on a team, alphabetically', c.map((x) => x.name.split(' (')[0]).join() === 'Dario Reyes,Jules Okafor,Marcus Vale,Theo Brandt');
   check('labels each with their team', c.find((x) => x.value === '100').name === 'Marcus Vale (Fernando\'s Fantastic Team)');
   check('values are ids', c.every((x) => /^\d+$/.test(x.value)));
-  c = await handlePlayerAutocomplete(ac('bra'), env, { fetchRosters: stubRosters });
+  c = await handlePlayerAutocomplete(ac('bra'), env, { fetchRosters: stubRosters, searchPlayers: noSearch });
   check('typing filters', c.length === 1 && c[0].value === '200');
-  c = await handlePlayerAutocomplete(ac('zzz'), env, { fetchRosters: stubRosters });
+  c = await handlePlayerAutocomplete(ac('zzz'), env, { fetchRosters: stubRosters, searchPlayers: noSearch });
   check('no match offers nothing', c.length === 0);
-  c = await handlePlayerAutocomplete({ data: { name: 'player', options: [{ name: 'name', value: '' }] } }, env, { fetchRosters: stubRosters });
+  c = await handlePlayerAutocomplete({ data: { name: 'player', options: [{ name: 'name', value: '' }] } }, env, { fetchRosters: stubRosters, searchPlayers: noSearch });
   check('nothing focused offers nothing', c.length === 0);
-  check('before setup, nothing offered', (await handlePlayerAutocomplete(ac(''), {}, { fetchRosters: stubRosters })).length === 0);
+  check('before setup, nothing offered', (await handlePlayerAutocomplete(ac(''), {}, { fetchRosters: stubRosters, searchPlayers: noSearch })).length === 0);
   const big = { teams: [{ id: 1, name: 'T'.repeat(200), players: Array.from({ length: 40 }, (_, i) => ({ id: i, name: `P${String(i).padStart(2, '0')}` })) }] };
-  c = await handlePlayerAutocomplete(ac(''), env, { fetchRosters: async () => big });
+  c = await handlePlayerAutocomplete(ac(''), env, { fetchRosters: async () => big, searchPlayers: noSearch });
   check('never more than Discord\'s 25 choices', c.length === 25);
   check('and never a label over 100 characters', c.every((x) => x.name.length <= 100));
 }
@@ -379,6 +396,121 @@ console.log('\n--- voting from inside the panel ---');
   check('the vote is recorded', out.content.includes('Vote recorded') && env.DB.state.votes.length === 1);
   check('the public card is redrawn, not the panel', api.edited.at(-1).id === 'm1' && api.edited.at(-1).channel === '777');
   check('and the panel is left alone', !api.edited.some((e) => e.id === 'panel-message'));
+}
+
+
+console.log('\n--- the league own categories ---');
+const eight = [0, 1, 2, 3, 6, 17, 19, 20].map((statId) => ({ statId }));
+const leagueJson = (items) => ({
+  teams: [{ id: 1, name: 'A', roster: { entries: [{ playerId: 100, playerPoolEntry: { player: { fullName: 'Marcus Vale' } } }] } }],
+  settings: { scoringSettings: { scoringItems: items }, tradeSettings: { deadlineDate: 5 } },
+});
+let pr = parseRosters(leagueJson(eight));
+check('reads the categories the league scores, in display order', pr.categories.join() === 'pts,reb,ast,stl,blk,tpm,fg,ft');
+check('a league without turnovers has none', !pr.categories.includes('to'));
+check('a league that scores turnovers has them', parseRosters(leagueJson([...eight, { statId: 11 }])).categories.includes('to'));
+check('no scoring settings means unknown, not empty', parseRosters({ teams: [] }).categories === null);
+check('settings with nothing recognisable mean unknown', parseRosters(leagueJson([{ statId: 99 }])).categories === null);
+check('the rest of the parse is unchanged', pr.tradeDeadline === 5 && pr.teams[0].players[0].id === 100);
+const eightCats = categoriesFrom(pr.categories);
+check('categoriesFrom picks exactly those', eightCats.length === 8 && eightCats.every((c) => pr.categories.includes(c.key)));
+check('and keeps the display order', eightCats.map((c) => c.label).join() === 'PTS,REB,AST,STL,BLK,3PM,FG%,FT%');
+check('unknown means all nine', categoriesFrom(null) === CATEGORIES && categoriesFrom([]).length === 9);
+check('keys it does not recognise fall back to all nine', categoriesFrom(['bogus']).length === 9);
+
+let card8 = playerMessage({ card: vale, owner: null, bio: null, cats: eightCats });
+check('the /player card leaves out an unscored category', !/^TO\s/m.test(card8) && /^FT%\s/m.test(card8));
+check('and still has the scored ones', ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%'].every((c) => new RegExp(`^${c.replace('%', '%')}\\s`, 'm').test(card8)));
+check('by default it still shows all nine', /^TO\s/m.test(playerMessage({ card: vale })));
+check('totals follow the league\'s categories', !('to' in totals([L(100)], eightCats)) && 'pts' in totals([L(100)], eightCats));
+check('so does the net', netFor(giving, getting, eightCats).every((n) => n.key !== 'to') && netFor(giving, getting, eightCats).length === 6);
+check('and the side tables', !/^TO\s/m.test(sideTable('x', giving, eightCats)) && /^FT%\s/m.test(sideTable('x', giving, eightCats)));
+let p8 = exploreMessage({ trade, cards, tab: 'players', tally, open: true, cats: eightCats });
+check('the Explore Players tab leaves it out', !/^TO\s/m.test(p8) && !p8.includes('TO +'));
+p8 = exploreMessage({ trade, cards, tab: 'overview', tally, open: true, cats: eightCats });
+check('the Explore Overview does not call turnovers worse', p8.includes('worse in PTS, REB, STL, BLK') && !/worse in [^.]*TO/.test(p8));
+
+console.log('\n--- projections in the Explore panel ---');
+const projTrade = { ...trade, give: [{ id: 150, name: 'Pat Proj' }], get: [{ id: 100, name: 'Marcus Vale' }] };
+let pp = exploreMessage({ trade: projTrade, cards, tab: 'overview', tally, open: true });
+check('a projected player is marked as such', pp.includes('15.5 pts · 6.5 reb · 3.5 ast (proj.)'));
+check('a played player is not marked', pp.includes('18.4 pts · 10.2 reb · 2.1 ast\n'));
+check('the note mentions projections', pp.includes('ESPN\'s projection or last season'));
+check('last season is still marked', exploreMessage({ trade, cards, tab: 'overview', tally, open: true }).includes('(last season)'));
+
+console.log('\n--- searching for any player ---');
+clearSearchCache();
+const searchCalls = [];
+const searchFetch = (body, status = 200) => async (url, init) => {
+  searchCalls.push({ url, headers: init.headers });
+  return { ok: status < 400, status, json: async () => body };
+};
+const found = { players: [
+  { player: { id: 3112335, fullName: 'Nikola Jokic', defaultPositionId: 5, proTeamId: 7 } },
+  { player: { id: 77, fullName: 'Nameless Position', defaultPositionId: 99, proTeamId: 999 } },
+  { player: { id: 78 } },
+] };
+let res = await searchPlayers(cfg, 'jok', { fetchImpl: searchFetch(found) });
+check('returns the players ESPN found', res.length === 2 && res[0].name === 'Nikola Jokic');
+check('with position and team decoded', res[0].position === 'C' && res[0].proTeam === 'DEN');
+check('and tolerates an unknown position or team', res[1].position === '' && res[1].proTeam === '');
+check('drops entries with no name', !res.some((r) => r.id === 78));
+const sf = JSON.parse(searchCalls[0].headers['x-fantasy-filter']).players;
+check('uses ESPN\'s player search view', searchCalls[0].url.includes('view=kona_player_info'));
+check('filters by the name typed, across every status', sf.filterName.value === 'jok' && sf.filterStatus.value.join() === 'FREEAGENT,WAIVERS,ONTEAM');
+check('most-owned first, and capped', sf.sortPercOwned.sortAsc === false && sf.limit === 15);
+await searchPlayers(cfg, 'JOK', { fetchImpl: searchFetch(found) });
+check('the same search (any case) is served from the cache', searchCalls.length === 1);
+await searchPlayers(cfg, 'jokic', { fetchImpl: searchFetch(found) });
+check('a different search is fetched', searchCalls.length === 2);
+await searchPlayers(cfg, 'jok', { fetchImpl: searchFetch(found), now: Date.now() + 5 * 60_000 });
+check('an old search is fetched again', searchCalls.length === 3);
+check('a malformed answer is an error', await throws(() => searchPlayers(cfg, 'zzz', { fetchImpl: searchFetch({}) })));
+check('an ESPN error is an error', await throws(() => searchPlayers(cfg, 'yyy', { fetchImpl: searchFetch({}, 500) })));
+
+console.log('\n--- /player autocomplete with search ---');
+{
+  const env = env0();
+  const ac = (typed) => ({ data: { name: 'player', options: [{ name: 'name', value: typed, focused: true }] } });
+  const calls2 = [];
+  const search = async (_c, term) => { calls2.push(term); return [
+    { id: 3112335, name: 'Nikola Jokic', position: 'C', proTeam: 'DEN' },
+    { id: 200, name: 'Theo Brandt', position: 'PG', proTeam: 'NYK' },
+  ]; };
+  const run = (typed, s = search) => handlePlayerAutocomplete(ac(typed), env, { fetchRosters: stubRosters, searchPlayers: s });
+  let c = await run('bra');
+  check('from three letters it asks ESPN', calls2.join() === 'bra');
+  check('an undrafted player is offered, with position and team', c.find((x) => x.value === '3112335').name === 'Nikola Jokic (C, DEN)');
+  check('a rostered player shows the team that has him', c.find((x) => x.value === '200').name === 'Theo Brandt (Ya Soul)');
+  check('a player in both lists appears once', c.filter((x) => x.value === '200').length === 1);
+  check('search results come first, in ESPN\'s order', c[0].value === '3112335');
+  c = await run('Ma');
+  check('under three letters it does not ask ESPN', calls2.length === 1);
+  check('and still matches the rostered list', c.map((x) => x.value).join() === '100');
+  c = await run('bra', async () => { throw new Error('ESPN 503'); });
+  check('if search fails, rostered players still appear', c.map((x) => x.value).join() === '200');
+  c = await run('zzzz', async () => []);
+  check('no match anywhere offers nothing', c.length === 0);
+  const many = async () => Array.from({ length: 40 }, (_, i) => ({ id: 1000 + i, name: `Player ${i}`, position: 'C', proTeam: 'DEN' }));
+  c = await run('pla', many);
+  check('never more than Discord\'s 25', c.length === 25 && c.every((x) => x.name.length <= 100));
+  c = await run('  bra  ');
+  check('typed spaces are ignored', calls2.at(-1) === 'bra');
+}
+
+console.log('\n--- the panel and the card use the league\'s categories ---');
+{
+  const { env } = await withTrade();
+  const cats8 = { ...rosters, categories: ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'fg', 'ft'] };
+  let out = await handleTradeExplore(press('tx:1:players', 'u4'), env, { fetchCards: stubCards, fetchRosters: async () => cats8, now: NOW });
+  check('the Explore panel follows the league', !/^TO\s/m.test(out.data.content) && /^FT%\s/m.test(out.data.content));
+  out = await handleTradeExplore(press('tx:1:players', 'u4'), env, { fetchCards: stubCards, fetchRosters: async () => { throw new Error('ESPN 503'); }, now: NOW });
+  check('if the settings cannot be read it shows everything, not nothing', /^TO\s/m.test(out.data.content));
+  out = await handleTradeExplore(press('tx:1:players', 'u4'), env, { fetchCards: stubCards, fetchRosters: stubRosters, now: NOW });
+  check('settings without categories also show everything', /^TO\s/m.test(out.data.content));
+  const pOut = await handlePlayer({ data: { name: 'player', options: [{ name: 'name', value: '100' }] }, member: who('u1') }, env,
+    { fetchRosters: async () => cats8, fetchCards: stubCards, fetchBio: async () => null });
+  check('/player follows the league', !/^TO\s/m.test(pOut.content) && /^FT%\s/m.test(pOut.content));
 }
 
 console.log('\n--- the command definition ---');

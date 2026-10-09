@@ -62,6 +62,8 @@ import {
   fetchRosters as fantasyFetchRosters,
   fetchPlayerCards as fantasyFetchPlayerCards,
   fetchBio as fantasyFetchBio,
+  searchPlayers as fantasySearchPlayers,
+  categoriesFrom,
   diagnose as fantasyDiagnose,
   diagnosticMessage,
   parseStandings,
@@ -887,7 +889,7 @@ export async function handleTradeVote(interaction, env, api, deps = {}) {
  * a new private message; pressing a tab rewrites that same message.
  */
 export async function handleTradeExplore(interaction, env, deps = {}) {
-  const { fetchCards = fantasyFetchPlayerCards, now = Date.now() } = deps;
+  const { fetchCards = fantasyFetchPlayerCards, fetchRosters = fantasyFetchRosters, now = Date.now() } = deps;
   const refuse = (text) => ({ update: false, data: onlyYou(text) });
   const cfg = fantasyConfig(env);
   if (!cfg) return refuse('The fantasy league has not been connected yet.');
@@ -898,8 +900,14 @@ export async function handleTradeExplore(interaction, env, deps = {}) {
   if (!trade) return refuse('That trade no longer exists.');
 
   let cards;
+  let cats;
   try {
-    cards = await fetchCards(cfg, [...trade.give, ...trade.get].map((p) => p.id));
+    [cards, cats] = await Promise.all([
+      fetchCards(cfg, [...trade.give, ...trade.get].map((p) => p.id)),
+      // Which categories this league scores. Not worth failing the panel for:
+      // without it the tables show every category rather than none.
+      fetchRosters(cfg).then((r) => categoriesFrom(r.categories)).catch(() => categoriesFrom(null)),
+    ]);
   } catch (err) {
     console.error(err);
     return refuse(`Could not reach ESPN: ${err.message}`);
@@ -912,7 +920,7 @@ export async function handleTradeExplore(interaction, env, deps = {}) {
     // A tab press rewrites the panel; the Explore button opens a new one.
     update: String(interaction.data.custom_id).startsWith('tx:'),
     data: {
-      content: exploreMessage({ trade, cards, tab: parsed.tab, tally, open }),
+      content: exploreMessage({ trade, cards, tab: parsed.tab, tally, open, cats }),
       components: exploreComponents(trade.id, parsed.tab, open),
       flags: PRIVATE,
       allowed_mentions: { parse: [] },
@@ -937,27 +945,58 @@ export async function handlePlayer(interaction, env, deps = {}) {
     const card = cards.get(id);
     if (!card) return onlyYou('ESPN has no card for that player.');
     const owner = rosters.teams.find((t) => t.players.some((p) => p.id === id))?.name ?? null;
-    return say(playerMessage({ card, owner, bio }).slice(0, MAX_MESSAGE));
+    return say(playerMessage({ card, owner, bio, cats: categoriesFrom(rosters.categories) }).slice(0, MAX_MESSAGE));
   } catch (err) {
     console.error(err);
     return onlyYou(`Could not reach ESPN: ${err.message}`);
   }
 }
 
-/** Autocomplete for /player: everyone on a team in the league, with their team. */
+/**
+ * Autocomplete for /player: anyone ESPN knows, rostered or not.
+ *
+ * From three letters on it asks ESPN's player search, so an undrafted player
+ * (draft night) or a free agent can be looked up. Rostered players in this
+ * league are always matched locally, and show their team, so the list still
+ * works with ESPN's search down or before three letters are typed.
+ */
 export async function handlePlayerAutocomplete(interaction, env, deps = {}) {
-  const { fetchRosters = fantasyFetchRosters } = deps;
+  const { fetchRosters = fantasyFetchRosters, searchPlayers = fantasySearchPlayers } = deps;
   const cfg = fantasyConfig(env);
   if (!cfg) return [];
   const focused = (interaction.data?.options ?? []).find((o) => o.focused);
   if (!focused) return [];
-  const typed = String(focused.value ?? '').toLowerCase();
-  return (await fetchRosters(cfg)).teams
-    .flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name, team: t.name })))
-    .filter((p) => p.name.toLowerCase().includes(typed))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 25)
-    .map((p) => ({ name: `${p.name} (${p.team})`.slice(0, 100), value: String(p.id) }));
+  const typed = String(focused.value ?? '').trim();
+  const lower = typed.toLowerCase();
+
+  const rosters = await fetchRosters(cfg);
+  const owner = new Map(rosters.teams.flatMap((t) => t.players.map((p) => [p.id, t.name])));
+  const rostered = rosters.teams
+    .flatMap((t) => t.players.map((p) => ({ id: p.id, name: p.name, position: '', proTeam: '' })))
+    .filter((p) => p.name.toLowerCase().includes(lower))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  let found = [];
+  if (typed.length >= 3) {
+    try {
+      found = await searchPlayers(cfg, typed);
+    } catch (err) {
+      // Fall back to the local list rather than showing nothing.
+      console.warn(`Player search failed: ${err.message}`);
+    }
+  }
+
+  const label = (p) => owner.has(p.id)
+    ? `${p.name} (${owner.get(p.id)})`
+    : `${p.name} (${[p.position, p.proTeam].filter(Boolean).join(', ') || 'not on a team'})`;
+  const seen = new Set();
+  const merged = [];
+  for (const p of [...found, ...rostered]) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    merged.push(p);
+  }
+  return merged.slice(0, 25).map((p) => ({ name: label(p).slice(0, 100), value: String(p.id) }));
 }
 
 /** Close every trade whose time is up, announcing how it ended. */

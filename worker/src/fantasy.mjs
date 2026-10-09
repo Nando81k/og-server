@@ -202,6 +202,54 @@ export async function fetchActivity(cfg, { size = 25, ...deps } = {}) {
   return parseActivity(feed, { teams, players });
 }
 
+// ------------------------------------------------------------------- rosters
+
+/**
+ * Every team with its players, and the trade deadline if the league sets one.
+ *
+ * Players come from each team's roster entries; the id is ESPN's player id,
+ * the same one the activity feed reports, which is what lets a processed trade
+ * be matched back to a proposal. The deadline lives in the league settings
+ * (tradeSettings.deadlineDate, epoch ms) as far as the espn-api library's data
+ * shows. It has not been confirmed against a live league: if the field isn't
+ * there the deadline is simply not enforced, and ESPN still refuses a late
+ * trade itself.
+ */
+export function parseRosters(json) {
+  if (!Array.isArray(json?.teams)) throw new Error('Malformed payload: missing teams');
+  const teams = json.teams.map((t) => ({
+    id: t.id,
+    name: teamName(t),
+    players: (t.roster?.entries ?? [])
+      .map((e) => ({
+        id: e.playerId ?? e.playerPoolEntry?.player?.id,
+        name: e.playerPoolEntry?.player?.fullName,
+      }))
+      .filter((p) => p.id !== undefined && p.name),
+  }));
+  const raw = json.settings?.tradeSettings?.deadlineDate;
+  return { teams, tradeDeadline: typeof raw === 'number' && raw > 0 ? raw : null };
+}
+
+// Autocomplete gets about three seconds for the whole round trip and fires on
+// every keystroke, so the same league is asked for once a minute at most. One
+// minute is short enough that a roster change shows up before anyone notices.
+let rosterCache = { key: '', at: 0, value: null };
+
+export function clearRosterCache() {
+  rosterCache = { key: '', at: 0, value: null };
+}
+
+export async function fetchRosters(cfg, { ttlMs = 60_000, now = Date.now(), ...deps } = {}) {
+  const key = `${cfg.leagueId}:${cfg.season}`;
+  if (ttlMs > 0 && rosterCache.key === key && now - rosterCache.at < ttlMs) return rosterCache.value;
+  const value = parseRosters(
+    await get(cfg, { views: ['mTeam', 'mRoster', 'mSettings'], unwrap: true, ...deps })
+  );
+  if (ttlMs > 0) rosterCache = { key, at: now, value };
+  return value;
+}
+
 // ---------------------------------------------------------------- formatting
 
 const record = (t) => `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ''}`;

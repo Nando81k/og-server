@@ -48,12 +48,17 @@ PICKEM_CHANNEL_ID = "1546736667992391761"
 # ESPN fantasy basketball. Leave FANTASY_LEAGUE_ID empty to keep the whole
 # feature off. The league id is the number after leagueId= in your ESPN league
 # URL. A season is named for the year it ENDS in, so 2026-27 is "2027".
-FANTASY_LEAGUE_ID = ""
+FANTASY_LEAGUE_ID = "2021901076"
 FANTASY_SEASON = "2027"
 # Where adds, drops and trades are posted: right-click #standings -> Copy
 # Channel ID. It must be a text channel, not one of the forum channels, and
 # not #trade-court, which is the server's own vote on proposed trades.
-FANTASY_CHANNEL_ID = ""
+FANTASY_CHANNEL_ID = "1546736683226234952"
+# Trade proposals. TRADE_CHANNEL_ID is where cards are posted: right-click
+# #trade-court -> Copy Channel ID. Left empty, a card is posted in whatever
+# channel /trade propose was run in. TRADE_VOTE_HOURS is how long the vote runs.
+TRADE_CHANNEL_ID = ""
+TRADE_VOTE_HOURS = "24"
 # Private league? Also set (never in this file):
 #   wrangler secret put ESPN_S2
 #   wrangler secret put ESPN_SWID

@@ -121,6 +121,54 @@ ESPN's responses, because the league is private. The first real run is the real
 test: `wrangler tail` while you run `/fantasy standings`. If ESPN has changed a
 field, the parser throws a "Malformed payload" error rather than posting junk.
 
+## Fantasy trades
+
+Propose a trade, let the server vote, and have the bot close it out. The bot
+only records and reports: a trade is still made in ESPN, by the two managers.
+
+**Once per manager:** `/fantasy link` and pick your team. It's a claim, not
+proof, and one person per team. A mod can reassign a wrong one with the `user`
+option.
+
+**To trade:** `/trade propose` with the other team and up to three players a
+side (autocomplete lists the real rosters). The card goes to `TRADE_CHANNEL_ID`
+with Fair / Collusion / Robbery buttons, and the other manager is pinged. The
+two managers can't vote; everyone else can, anonymously, and can change their
+vote until it closes.
+
+**How it ends** (after `TRADE_VOTE_HOURS`, default 24, checked every ten
+minutes by the fantasy cron):
+
+| Result | When |
+|---|---|
+| Approved | At least 3 votes, Fair is the top choice, and neither Collusion nor Robbery has a third |
+| Flagged for mods | Collusion or Robbery reaches a third of the votes, or Fair isn't on top |
+| Not enough votes | Fewer than 3 votes |
+
+Mods settle flagged and no-vote trades with `/trade approve` or `/trade veto`
+(also usable on any open trade). When ESPN processes a matching trade, the
+card flips to "Completed in ESPN" on its own. A player in an open trade can't
+be in a second one.
+
+The thresholds are constants at the top of `src/trade.mjs` (`QUORUM`, and the
+one-third rule in `decide`).
+
+**Deploying this change adds three tables**, so apply the schema once:
+
+```bash
+cd worker
+wrangler d1 execute og-pickem --remote --file=./schema.sql
+wrangler deploy
+node ../scripts/discord/register-commands.mjs
+```
+
+The schema file is safe to re-run. `#trade-court`'s pinned post is written by
+hand and isn't touched; add a line to it pointing people at `/trade propose`.
+
+**Not verified against a live league.** The tests use fixtures shaped like
+ESPN's responses. The parts to watch on first use are the roster lists in the
+autocomplete, and a processed trade flipping its card to completed.
+
 ## Tests
 
 ```bash

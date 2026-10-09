@@ -296,3 +296,153 @@ export async function recordResult(db, id, previousRaw, results) {
 export async function closeTournament(db, id, status) {
   await db.prepare(`UPDATE tournaments SET status = ? WHERE id = ?`).bind(status, id).run();
 }
+
+// --- fantasy trades ---------------------------------------------------------
+
+/** Every status a trade can still move out of. */
+export const LIVE_TRADE_STATUSES = ['open', 'approved', 'flagged', 'no_quorum'];
+
+const tradeShape = (r) => (r ? {
+  id: r.id,
+  season: r.season,
+  proposerId: r.proposer_id,
+  fromTeam: r.from_team,
+  toTeam: r.to_team,
+  fromName: r.from_name,
+  toName: r.to_name,
+  give: parse(r.give, []),
+  get: parse(r.get, []),
+  note: r.note ?? '',
+  status: r.status,
+  channelId: r.channel_id ?? null,
+  messageId: r.message_id ?? null,
+  createdAt: r.created_at,
+  closesAt: r.closes_at,
+} : null);
+
+export async function getLink(db, season, userId) {
+  const { results } = await db
+    .prepare(`SELECT * FROM fantasy_links WHERE season = ? AND user_id = ?`)
+    .bind(season, userId)
+    .all();
+  const r = results?.[0];
+  return r ? { userId: r.user_id, teamId: r.team_id, teamName: r.team_name } : null;
+}
+
+export async function linkForTeam(db, season, teamId) {
+  const { results } = await db
+    .prepare(`SELECT * FROM fantasy_links WHERE season = ? AND team_id = ?`)
+    .bind(season, teamId)
+    .all();
+  const r = results?.[0];
+  return r ? { userId: r.user_id, teamId: r.team_id, teamName: r.team_name } : null;
+}
+
+/**
+ * Claim a team. Refuses if someone else already holds it, unless `force` (a
+ * mod reassigning), in which case the previous claim is dropped first.
+ */
+export async function linkTeam(db, { season, userId, teamId, teamName, force = false, now }) {
+  const held = await linkForTeam(db, season, teamId);
+  if (held && held.userId !== userId) {
+    if (!force) return { ok: false, takenBy: held.userId };
+    await db
+      .prepare(`DELETE FROM fantasy_links WHERE season = ? AND team_id = ?`)
+      .bind(season, teamId)
+      .run();
+  }
+  await db
+    .prepare(
+      `INSERT INTO fantasy_links (user_id, season, team_id, team_name, linked_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, season) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name`
+    )
+    .bind(userId, season, teamId, teamName, now ?? new Date().toISOString())
+    .run();
+  return { ok: true };
+}
+
+export async function createTrade(db, t) {
+  const res = await db
+    .prepare(
+      `INSERT INTO trades
+         (season, proposer_id, from_team, to_team, from_name, to_name, give, get, note, status, created_at, closes_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`
+    )
+    .bind(
+      t.season, t.proposerId, t.fromTeam, t.toTeam, t.fromName, t.toName,
+      JSON.stringify(t.give), JSON.stringify(t.get), t.note ?? '',
+      t.createdAt, t.closesAt
+    )
+    .run();
+  return res?.meta?.last_row_id;
+}
+
+export async function setTradeMessage(db, id, channelId, messageId) {
+  await db
+    .prepare(`UPDATE trades SET channel_id = ?, message_id = ? WHERE id = ?`)
+    .bind(channelId, messageId, id)
+    .run();
+}
+
+export async function getTrade(db, id) {
+  const { results } = await db.prepare(`SELECT * FROM trades WHERE id = ?`).bind(id).all();
+  return tradeShape(results?.[0]);
+}
+
+/** Trades whose players are still spoken for: everything not yet final. */
+export async function liveTrades(db, season) {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM trades
+        WHERE season = ? AND status IN ('open', 'approved', 'flagged', 'no_quorum')
+        ORDER BY id`
+    )
+    .bind(season)
+    .all();
+  return (results ?? []).map(tradeShape);
+}
+
+/** Open trades whose 24 hours are up. */
+export async function dueTrades(db, nowIso) {
+  const { results } = await db
+    .prepare(`SELECT * FROM trades WHERE status = 'open' AND closes_at <= ? ORDER BY id`)
+    .bind(nowIso)
+    .all();
+  return (results ?? []).map(tradeShape);
+}
+
+/**
+ * Move a trade to a new status, but only out of one of `from`.
+ *
+ * Conditional so two things racing for the same trade (the close job and a
+ * mod's override, say) cannot both win: the loser sees false and leaves it.
+ */
+export async function resolveTrade(db, id, from, to, now) {
+  const marks = from.map(() => '?').join(', ');
+  const res = await db
+    .prepare(`UPDATE trades SET status = ?, resolved_at = ? WHERE id = ? AND status IN (${marks})`)
+    .bind(to, now ?? new Date().toISOString(), id, ...from)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** Idempotent per voter: voting again replaces the earlier vote. */
+export async function castVote(db, tradeId, userId, vote, now) {
+  await db
+    .prepare(
+      `INSERT INTO trade_votes (trade_id, user_id, vote, voted_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(trade_id, user_id) DO UPDATE SET vote = excluded.vote, voted_at = excluded.voted_at`
+    )
+    .bind(tradeId, userId, vote, now ?? new Date().toISOString())
+    .run();
+}
+
+export async function tradeVotes(db, tradeId) {
+  const { results } = await db
+    .prepare(`SELECT user_id, vote FROM trade_votes WHERE trade_id = ?`)
+    .bind(tradeId)
+    .all();
+  return (results ?? []).map((r) => ({ userId: r.user_id, vote: r.vote }));
+}

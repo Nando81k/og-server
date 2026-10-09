@@ -134,9 +134,100 @@ export const COMMANDS = [
       { type: SUB_COMMAND, name: 'standings', description: 'Where everyone sits right now' },
       { type: SUB_COMMAND, name: 'scores', description: 'This week’s matchups and running scores' },
       { type: SUB_COMMAND, name: 'recent', description: 'The latest adds, drops and trades' },
+      {
+        type: SUB_COMMAND,
+        name: 'link',
+        description: 'Say which ESPN team is yours',
+        options: [
+          {
+            name: 'team',
+            description: 'Start typing your team’s name',
+            type: STRING,
+            required: true,
+            // The league's teams, resolved live from ESPN.
+            autocomplete: true,
+          },
+          {
+            name: 'user',
+            description: 'Mods only: link someone else’s team',
+            type: USER,
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'trade',
+    description: 'Propose a fantasy trade and let the server vote on it',
+    // Proposing and cancelling your own are for any manager, and Discord can
+    // only hide a whole command, never one subcommand. So approve and veto are
+    // checked for Manage Messages in the handler, the same arrangement as
+    // /bracket, and stay visible to everyone in the picker.
+    options: [
+      {
+        type: SUB_COMMAND,
+        name: 'propose',
+        description: 'Put a trade to the server’s vote',
+        options: [
+          {
+            name: 'team',
+            description: 'Who you are trading with',
+            type: STRING,
+            required: true,
+            autocomplete: true,
+          },
+          {
+            name: 'give',
+            description: 'A player you send',
+            type: STRING,
+            required: true,
+            autocomplete: true,
+          },
+          {
+            name: 'get',
+            description: 'A player you get',
+            type: STRING,
+            required: true,
+            autocomplete: true,
+          },
+          { name: 'give2', description: 'A second player you send', type: STRING, required: false, autocomplete: true },
+          { name: 'give3', description: 'A third player you send', type: STRING, required: false, autocomplete: true },
+          { name: 'get2', description: 'A second player you get', type: STRING, required: false, autocomplete: true },
+          { name: 'get3', description: 'A third player you get', type: STRING, required: false, autocomplete: true },
+          {
+            name: 'note',
+            description: 'Why this works for both teams',
+            type: STRING,
+            required: false,
+            max_length: 200,
+          },
+        ],
+      },
+      {
+        type: SUB_COMMAND,
+        name: 'approve',
+        description: 'Mods: let a trade stand',
+        options: [{ name: 'trade', description: 'The trade number', type: INTEGER, required: true, min_value: 1 }],
+      },
+      {
+        type: SUB_COMMAND,
+        name: 'veto',
+        description: 'Mods: call a trade off',
+        options: [{ name: 'trade', description: 'The trade number', type: INTEGER, required: true, min_value: 1 }],
+      },
+      {
+        type: SUB_COMMAND,
+        name: 'cancel',
+        description: 'Withdraw your own proposal',
+        options: [{ name: 'trade', description: 'The trade number', type: INTEGER, required: true, min_value: 1 }],
+      },
     ],
   },
 ];
+
+/** The /trade subcommands only a mod may run. */
+export const TRADE_MOD_ONLY = ['approve', 'veto'];
 
 /** The subcommands of /bracket only a mod may run. */
 export const BRACKET_MOD_ONLY = ['create', 'start', 'undo', 'cancel'];

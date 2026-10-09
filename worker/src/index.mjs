@@ -40,14 +40,24 @@ import {
   openMatches as bracketOpenMatches, isComplete as bracketIsComplete,
   MIN_ENTRANTS, MAX_ENTRANTS,
 } from './tournament.mjs';
-import { BRACKET_MOD_ONLY } from '../../shared/commands.mjs';
+import { BRACKET_MOD_ONLY, TRADE_MOD_ONLY } from '../../shared/commands.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
 import {
+  getLink, linkTeam, linkForTeam, createTrade, setTradeMessage, getTrade,
+  liveTrades as dbLiveTrades, dueTrades, resolveTrade, castVote, tradeVotes,
+} from './db.mjs';
+import {
+  LIVE, DEFAULT_VOTE_HOURS, MAX_NOTE,
+  tallyVotes, decide, parseCustomId, voteComponents, voteLabel, clean,
+  proposalMessage, closedMessage, resultAnnouncement, validateProposal, findCompletedTrades,
+} from './trade.mjs';
+import {
   fantasyConfig,
   fetchLeague as fantasyFetchLeague,
   fetchActivity as fantasyFetchActivity,
+  fetchRosters as fantasyFetchRosters,
   parseStandings,
   parseMatchups,
   standingsMessage as fantasyStandingsMessage,
@@ -58,6 +68,7 @@ import {
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
+const MESSAGE_COMPONENT = 3;
 const AUTOCOMPLETE = 4;
 const PONG = 1;
 const REPLY = 4;
@@ -573,17 +584,21 @@ export const FANTASY_CRON = '*/10 * * * *';
 const MAX_FEED_POSTS = 10;
 
 /**
- * /fantasy standings | scores | recent.
+ * /fantasy standings | scores | recent | link.
  *
  * Read-only and public. ESPN's answer is trimmed to Discord's limit rather
  * than refused, and a failure is reported privately: "ESPN refused the
  * request" is a thing for whoever runs the bot to see, not the channel.
  */
 export async function handleFantasy(interaction, env, deps = {}) {
-  const { fetchLeague = fantasyFetchLeague, fetchActivity = fantasyFetchActivity } = deps;
+  const {
+    fetchLeague = fantasyFetchLeague,
+    fetchActivity = fantasyFetchActivity,
+    fetchRosters = fantasyFetchRosters,
+  } = deps;
   const cfg = fantasyConfig(env);
   if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
-  const { name: sub } = subcommandOf(interaction);
+  const { name: sub, args } = subcommandOf(interaction);
 
   try {
     let content;
@@ -593,6 +608,22 @@ export async function handleFantasy(interaction, env, deps = {}) {
       content = fantasyScoresMessage(parseMatchups(await fetchLeague(cfg)));
     } else if (sub === 'recent') {
       content = fantasyActivityMessage((await fetchActivity(cfg, { size: 10 })).slice(0, 10));
+    } else if (sub === 'link') {
+      // A claim, not a proof: nothing ties a Discord account to an ESPN one.
+      // It is enough for a friend group, and a mod can reassign a wrong one.
+      const caller = interaction.member?.user?.id ?? interaction.user?.id;
+      const target = args.user ?? caller;
+      const isMod = hasManageMessages(interaction.member);
+      if (target !== caller && !isMod) return onlyYou('Only mods can link someone else’s team.');
+      const team = (await fetchRosters(cfg)).teams.find((t) => String(t.id) === String(args.team));
+      if (!team) return onlyYou('That team is not in the league. Pick one from the list.');
+      const res = await linkTeam(env.DB, {
+        season: cfg.season, userId: target, teamId: team.id, teamName: team.name, force: isMod,
+      });
+      if (!res.ok) {
+        return onlyYou(`**${clean(team.name)}** is already linked to <@${res.takenBy}>. A mod can reassign it.`);
+      }
+      content = `<@${target}> is now **${clean(team.name)}**.`;
     } else {
       return onlyYou('Not something I handle.');
     }
@@ -650,6 +681,270 @@ export async function runFantasyFeed(env, api, deps = {}) {
     posted += 1;
   }
   return { posted, seeded: false };
+}
+
+// ------------------------------------------------------------ fantasy trades
+
+/** Who may not vote on a trade: the proposer and whoever runs the other team. */
+async function excludedVoters(db, trade) {
+  const other = await linkForTeam(db, trade.season, trade.toTeam);
+  const ids = [trade.proposerId];
+  if (other && other.userId !== trade.proposerId) ids.push(other.userId);
+  return { ids, otherUserId: other?.userId ?? null };
+}
+
+/** Rewrite a trade's card for its final state and take the buttons off. */
+async function closeCard(env, api, trade, status, reason = '') {
+  if (!trade.messageId || !trade.channelId) return;
+  const ex = await excludedVoters(env.DB, trade);
+  const tally = tallyVotes(await tradeVotes(env.DB, trade.id), ex.ids);
+  await api.editMessage(trade.channelId, trade.messageId, {
+    content: closedMessage({ trade, tally, status, reason }),
+    components: [],
+    allowed_mentions: { parse: [] },
+  });
+}
+
+const words = (status) => status.replace('_', ' ');
+
+/**
+ * /trade propose | approve | veto | cancel.
+ *
+ * The bot only records and reports. A trade is still made in ESPN, by the two
+ * managers; approving or vetoing here is the server's verdict on it, not an
+ * action ESPN can see.
+ */
+export async function handleTrade(interaction, env, api, deps = {}) {
+  const { fetchRosters = fantasyFetchRosters, now = Date.now() } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const isMod = hasManageMessages(interaction.member);
+  const { name: sub, args } = subcommandOf(interaction);
+
+  // Discord can only hide a whole command, never one subcommand, so these two
+  // are visible to everyone and refused here. See shared/commands.mjs.
+  if (TRADE_MOD_ONLY.includes(sub) && !isMod) {
+    return onlyYou('Only mods can do that. You can `/trade propose` and `/trade cancel` your own.');
+  }
+
+  if (sub === 'propose') {
+    const mine = await getLink(env.DB, cfg.season, userId);
+    if (!mine) return onlyYou('Link your team first with `/fantasy link`.');
+
+    const ids = (keys) => keys.map((k) => args[k]).filter((v) => v !== undefined && v !== '').map(Number);
+    const giveIds = ids(['give', 'give2', 'give3']);
+    const getIds = ids(['get', 'get2', 'get3']);
+    const toTeamId = Number(args.team);
+    if ([...giveIds, ...getIds, toTeamId].some((n) => !Number.isInteger(n))) {
+      return onlyYou('Pick the team and players from the lists as you type.');
+    }
+
+    const rosters = await fetchRosters(cfg);
+    const live = await dbLiveTrades(env.DB, cfg.season);
+    const v = validateProposal({
+      mine, toTeamId, giveIds, getIds, rosters, live, deadline: rosters.tradeDeadline, now,
+    });
+    if (!v.ok) return onlyYou(v.error);
+
+    const hours = Number(env.TRADE_VOTE_HOURS) > 0 ? Number(env.TRADE_VOTE_HOURS) : DEFAULT_VOTE_HOURS;
+    const trade = {
+      season: cfg.season,
+      proposerId: userId,
+      fromTeam: v.from.id,
+      toTeam: v.to.id,
+      fromName: v.from.name,
+      toName: v.to.name,
+      give: v.give,
+      get: v.get,
+      note: clean(args.note ?? '', MAX_NOTE),
+      status: 'open',
+      createdAt: new Date(now).toISOString(),
+      closesAt: new Date(now + hours * 3_600_000).toISOString(),
+    };
+    trade.id = await createTrade(env.DB, trade);
+
+    const other = await linkForTeam(env.DB, cfg.season, v.to.id);
+    const channel = env.TRADE_CHANNEL_ID || interaction.channel_id;
+    let posted;
+    try {
+      posted = await api.postMessage(
+        channel,
+        proposalMessage({ trade, tally: tallyVotes([]), otherUserId: other?.userId }),
+        // The one deliberate ping: the other manager, so they know it exists.
+        { parse: [], users: other ? [other.userId] : [] },
+        { components: voteComponents(trade.id) }
+      );
+    } catch (err) {
+      // A proposal nobody can see or vote on must not keep its players locked.
+      await resolveTrade(env.DB, trade.id, ['open'], 'cancelled');
+      throw err;
+    }
+    await setTradeMessage(env.DB, trade.id, channel, posted.id);
+    return onlyYou(`Posted as trade #${trade.id} in <#${channel}>. The server has ${hours} hours to vote.`);
+  }
+
+  const trade = await getTrade(env.DB, Number(args.trade));
+  if (!trade || trade.season !== cfg.season) return onlyYou(`There is no trade #${args.trade}.`);
+
+  if (sub === 'cancel') {
+    if (trade.proposerId !== userId && !isMod) {
+      return onlyYou('Only the person who proposed it, or a mod, can cancel it.');
+    }
+    if (trade.status !== 'open') return onlyYou(`Trade #${trade.id} is already ${words(trade.status)}.`);
+    if (!(await resolveTrade(env.DB, trade.id, ['open'], 'cancelled'))) {
+      return onlyYou('Something changed that trade just now. Try again.');
+    }
+    await closeCard(env, api, trade, 'cancelled').catch((e) => console.warn(`card: ${e.message}`));
+    return say(`Trade #${trade.id} was cancelled.`);
+  }
+
+  // approve | veto: open to any live trade, since a mod may overrule a result.
+  if (!LIVE.includes(trade.status)) return onlyYou(`Trade #${trade.id} is already ${words(trade.status)}.`);
+  const to = sub === 'approve' ? 'approved' : 'vetoed';
+  if (!(await resolveTrade(env.DB, trade.id, LIVE, to))) {
+    return onlyYou('Something changed that trade just now. Try again.');
+  }
+  await closeCard(env, api, trade, to).catch((e) => console.warn(`card: ${e.message}`));
+  return say(
+    to === 'approved'
+      ? `Trade #${trade.id} was approved by a mod. ${clean(trade.fromName)} and ${clean(trade.toName)} can process it in ESPN.`
+      : `Trade #${trade.id} was vetoed by a mod. It should not go through. The bot cannot block it in ESPN, so the managers (or the commissioner) need to act on this.`
+  );
+}
+
+/** A press on one of a trade card's vote buttons. */
+export async function handleTradeVote(interaction, env, api, deps = {}) {
+  const { now = Date.now() } = deps;
+  const parsed = parseCustomId(interaction.data?.custom_id);
+  if (!parsed) return onlyYou('Not something I handle.');
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  const trade = await getTrade(env.DB, parsed.tradeId);
+  if (!trade) return onlyYou('That trade no longer exists.');
+  if (trade.status !== 'open' || now >= Date.parse(trade.closesAt)) {
+    return onlyYou('Voting on this trade has closed.');
+  }
+  const ex = await excludedVoters(env.DB, trade);
+  if (ex.ids.includes(userId)) return onlyYou('You’re part of this trade, so you can’t vote on it.');
+
+  await castVote(env.DB, trade.id, userId, parsed.vote, new Date(now).toISOString());
+  const tally = tallyVotes(await tradeVotes(env.DB, trade.id), ex.ids);
+
+  // Redraw the shared card from the database rather than from this one click,
+  // so two votes landing together each show the other's.
+  try {
+    await api.editMessage(
+      interaction.channel_id ?? trade.channelId,
+      interaction.message?.id ?? trade.messageId,
+      {
+        content: proposalMessage({ trade, tally, otherUserId: ex.otherUserId }),
+        components: voteComponents(trade.id),
+        allowed_mentions: { parse: [] },
+      }
+    );
+  } catch (err) {
+    // The vote itself is saved; a stale count on the card heals on the next press.
+    console.warn(`Could not redraw trade #${trade.id}: ${err.message}`);
+  }
+  return onlyYou(`Vote recorded: **${voteLabel(parsed.vote)}**. You can change it until voting closes.`);
+}
+
+/** Close every trade whose time is up, announcing how it ended. */
+export async function runTradeClose(env, api, deps = {}) {
+  const cfg = fantasyConfig(env);
+  if (!cfg) return { closed: 0 };
+  const { now = Date.now(), alreadyDone = dbAlreadyDone, markDone = dbMarkDone } = deps;
+
+  let closed = 0;
+  const failures = [];
+  for (const trade of await dueTrades(env.DB, new Date(now).toISOString())) {
+    try {
+      const ex = await excludedVoters(env.DB, trade);
+      const tally = tallyVotes(await tradeVotes(env.DB, trade.id), ex.ids);
+      const decision = decide(tally);
+      // In this order, like the pick'em job: the card and the announcement can
+      // be repeated safely (the announcement has a marker), the status change
+      // is the step that ends it, so it goes last and a failure retries.
+      await closeCard(env, api, trade, decision.status, decision.reason);
+      const key = `trade:${trade.id}:announced`;
+      if (!(await alreadyDone(env.DB, key))) {
+        await api.postMessage(trade.channelId, resultAnnouncement({ trade, tally, decision }));
+        await markDone(env.DB, key);
+      }
+      if (await resolveTrade(env.DB, trade.id, ['open'], decision.status)) closed += 1;
+    } catch (err) {
+      console.error(`Closing trade #${trade.id} failed: ${err.message}`);
+      failures.push(`#${trade.id}: ${err.message}`);
+    }
+  }
+  // One bad trade must not strand the others, but it must still show as a
+  // failed invocation, the only signal anyone sees.
+  if (failures.length) throw new Error(failures.join('; '));
+  return { closed };
+}
+
+/**
+ * Notice trades ESPN has processed and mark their cards completed.
+ *
+ * Asks ESPN only when a trade is actually waiting, so a quiet league costs
+ * nothing extra every ten minutes.
+ */
+export async function runTradeSync(env, api, deps = {}) {
+  const cfg = fantasyConfig(env);
+  if (!cfg) return { completed: 0 };
+  const { fetchActivity = fantasyFetchActivity, liveTrades = dbLiveTrades } = deps;
+  const waiting = await liveTrades(env.DB, cfg.season);
+  if (waiting.length === 0) return { completed: 0 };
+
+  let completed = 0;
+  for (const trade of findCompletedTrades(await fetchActivity(cfg, { size: 25 }), waiting)) {
+    if (!(await resolveTrade(env.DB, trade.id, LIVE, 'completed'))) continue;
+    await closeCard(env, api, trade, 'completed').catch((e) => console.warn(`card: ${e.message}`));
+    completed += 1;
+  }
+  return { completed };
+}
+
+/** Autocomplete for /trade propose and /fantasy link, from the live rosters. */
+export async function handleFantasyAutocomplete(interaction, env, deps = {}) {
+  const { fetchRosters = fantasyFetchRosters } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return [];
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+  const { name: sub, args, options } = subcommandOf(interaction);
+  const focused = options.find((o) => o.focused);
+  if (!focused) return [];
+
+  const typed = String(focused.value ?? '').toLowerCase();
+  const rosters = await fetchRosters(cfg);
+  const choices = (items) => items
+    .filter((x) => x.name.toLowerCase().includes(typed))
+    .slice(0, 25)
+    .map((x) => ({ name: x.name.slice(0, 100), value: String(x.id) }));
+
+  if (focused.name === 'team') {
+    const mine = sub === 'propose' ? await getLink(env.DB, cfg.season, userId) : null;
+    return choices(rosters.teams.filter((t) => !mine || t.id !== mine.teamId));
+  }
+  if (sub !== 'propose') return [];
+
+  // Players: yours to give, theirs to get, never one already picked.
+  const taken = new Set(
+    ['give', 'give2', 'give3', 'get', 'get2', 'get3']
+      .filter((k) => k !== focused.name)
+      .map((k) => args[k])
+      .filter(Boolean)
+      .map(String)
+  );
+  let team;
+  if (focused.name.startsWith('give')) {
+    const mine = await getLink(env.DB, cfg.season, userId);
+    team = mine && rosters.teams.find((t) => t.id === mine.teamId);
+  } else {
+    team = rosters.teams.find((t) => String(t.id) === String(args.team));
+  }
+  return team ? choices(team.players.filter((p) => !taken.has(String(p.id)))) : [];
 }
 
 export default {
@@ -857,6 +1152,46 @@ export default {
       return json({ type: REPLY, data: await handleFantasy(interaction, env) });
     }
 
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'trade') {
+      try {
+        return json({
+          type: REPLY,
+          data: await handleTrade(interaction, env, createApi(env.DISCORD_TOKEN)),
+        });
+      } catch (err) {
+        console.error(err);
+        return json({ type: REPLY, data: onlyYou(`Could not do that: ${err.message}`) });
+      }
+    }
+
+    // A press on a vote button. Only trade cards carry components so far.
+    if (interaction.type === MESSAGE_COMPONENT && String(interaction.data?.custom_id).startsWith('trade:')) {
+      try {
+        return json({
+          type: REPLY,
+          data: await handleTradeVote(interaction, env, createApi(env.DISCORD_TOKEN)),
+        });
+      } catch (err) {
+        console.error(err);
+        return json({ type: REPLY, data: onlyYou(`Could not record that: ${err.message}`) });
+      }
+    }
+
+    if (
+      interaction.type === AUTOCOMPLETE &&
+      (interaction.data?.name === 'trade' || interaction.data?.name === 'fantasy')
+    ) {
+      try {
+        return json({
+          type: AUTOCOMPLETE_RESULT,
+          data: { choices: await handleFantasyAutocomplete(interaction, env) },
+        });
+      } catch (err) {
+        console.error(err);
+        return json({ type: AUTOCOMPLETE_RESULT, data: { choices: [] } });
+      }
+    }
+
     // Fires as the user types into /bracket report's match option. Discord
     // gives the whole round trip about three seconds, which is why entrant
     // names are stored at sign-up instead of fetched here.
@@ -895,8 +1230,31 @@ export default {
     // doing promotions and the pick'em, and is also the default when no cron
     // is named, so nothing that called this before changes behaviour.
     if (event?.cron === FANTASY_CRON) {
-      const out = await runFantasyFeed(env, api);
-      console.log(`Fantasy feed: ${out.seeded ? 'seeded' : `${out.posted} posted`}.`);
+      // Three independent jobs on one trigger: one failing must not stop the
+      // others, but it must still fail the invocation.
+      const failures = [];
+      try {
+        const out = await runFantasyFeed(env, api);
+        console.log(`Fantasy feed: ${out.seeded ? 'seeded' : `${out.posted} posted`}.`);
+      } catch (err) {
+        console.error(`Fantasy feed failed: ${err.message}`);
+        failures.push(`feed: ${err.message}`);
+      }
+      try {
+        const out = await runTradeClose(env, api);
+        console.log(`Trades: ${out.closed} closed.`);
+      } catch (err) {
+        console.error(`Trade close failed: ${err.message}`);
+        failures.push(`trades: ${err.message}`);
+      }
+      try {
+        const out = await runTradeSync(env, api);
+        console.log(`Trades: ${out.completed} completed in ESPN.`);
+      } catch (err) {
+        console.error(`Trade sync failed: ${err.message}`);
+        failures.push(`trade sync: ${err.message}`);
+      }
+      if (failures.length) throw new Error(failures.join('; '));
       return;
     }
     return runCron(env, api);

@@ -486,6 +486,33 @@ export async function diagnose(cfg, playerId, { fetchImpl = fetch, ...deps } = {
     };
   });
 
+  // Whether ESPN's own player search answers, which is what finding a player
+  // nobody has drafted yet (draft night, the waiver wire) would be built on.
+  // Run after the card so it can search for the same player by surname.
+  await run('search', async () => {
+    const term = String(facts.card?.name ?? 'jokic').split(' ').slice(-1)[0];
+    const j = await get(cfg, {
+      views: ['kona_player_info'],
+      filter: {
+        players: {
+          filterName: { value: term },
+          filterStatus: { value: ['FREEAGENT', 'WAIVERS', 'ONTEAM'] },
+          limit: 5,
+          sortPercOwned: { sortPriority: 1, sortAsc: false },
+        },
+      },
+      unwrap: true, fetchImpl, ...deps,
+    });
+    const list = Array.isArray(j.players) ? j.players : [];
+    const names = list.map((e) => (e.player ?? e).fullName).filter(Boolean);
+    return {
+      term,
+      count: list.length,
+      names: names.slice(0, 3),
+      matched: names.some((n) => n.toLowerCase().includes(term.toLowerCase())),
+    };
+  });
+
   await run('bio', async () => {
     const res = await fetchImpl(
       `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}`,
@@ -527,6 +554,14 @@ export function diagnosticMessage(facts) {
       `seasons present: ${C.seasons.length ? C.seasons.join(', ') : 'none'}`,
       `game logs: ${C.logCount}${C.logCount ? ` (e.g. ${C.logIds.join(', ')}) per-game: ${C.logsHaveAverages ? 'yes' : 'no'}, totals: ${C.logsHaveStats ? 'yes' : 'no'}` : ''}`,
       '```'
+    );
+  }
+  const S = facts.search;
+  if (S) {
+    out.push(
+      `**Name search:** "${S.term}" gave ${S.count} result${S.count === 1 ? '' : 's'}` +
+        (S.names.length ? ` (${S.names.join(', ')})` : '') +
+        (S.count && !S.matched ? ', but none matched' : '')
     );
   }
   const B = facts.bio;

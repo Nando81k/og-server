@@ -14,7 +14,13 @@ compatibility_date = "2026-09-01"
 # 13 days for "a week", and would idle the leaderboard post until the next
 # Tuesday even when the week finished days earlier.
 [triggers]
-crons = ["0 9 * * *"]
+#
+# The second trigger drives only the ESPN fantasy feed (runFantasyFeed), which
+# is the one job here that is better live than daily: a trade posted the next
+# morning is stale. scheduled() tells the two apart by event.cron, so the
+# string must match FANTASY_CRON in src/index.mjs exactly. Until
+# FANTASY_LEAGUE_ID is set it returns immediately and costs nothing.
+crons = ["0 9 * * *", "*/10 * * * *"]
 
 # Keep the logs. Without this, console.log and console.error exist only in the
 # moment — readable by `wrangler tail` and by nobody else, ever. The cron runs
@@ -38,6 +44,19 @@ SEASON = "2026"
 LEADERBOARD_CHANNEL_ID = "1546736665492717600"
 # Where the one-off "the pick'em is live" post goes when week 1 is first scored.
 PICKEM_CHANNEL_ID = "1546736667992391761"
+
+# ESPN fantasy basketball. Leave FANTASY_LEAGUE_ID empty to keep the whole
+# feature off. The league id is the number after leagueId= in your ESPN league
+# URL. A season is named for the year it ENDS in, so 2026-27 is "2027".
+FANTASY_LEAGUE_ID = ""
+FANTASY_SEASON = "2027"
+# Where adds, drops and trades are posted: right-click #standings -> Copy
+# Channel ID. It must be a text channel, not one of the forum channels, and
+# not #trade-court, which is the server's own vote on proposed trades.
+FANTASY_CHANNEL_ID = ""
+# Private league? Also set (never in this file):
+#   wrangler secret put ESPN_S2
+#   wrangler secret put ESPN_SWID
 
 # Created with `wrangler d1 create og-pickem`; schema applied with
 # `wrangler d1 execute og-pickem --remote --file=./schema.sql`. Both done.

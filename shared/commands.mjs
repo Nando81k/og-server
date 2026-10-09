@@ -125,6 +125,17 @@ export const COMMANDS = [
       { type: SUB_COMMAND, name: 'cancel', description: 'Call the whole thing off' },
     ],
   },
+  {
+    name: 'fantasy',
+    description: 'The NBA fantasy league, straight from ESPN',
+    // All read-only and open to everyone, so no permission gate and nothing
+    // for the handler to re-check.
+    options: [
+      { type: SUB_COMMAND, name: 'standings', description: 'Where everyone sits right now' },
+      { type: SUB_COMMAND, name: 'scores', description: 'This week’s matchups and running scores' },
+      { type: SUB_COMMAND, name: 'recent', description: 'The latest adds, drops and trades' },
+    ],
+  },
 ];
 
 /** The subcommands of /bracket only a mod may run. */

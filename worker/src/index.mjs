@@ -44,6 +44,17 @@ import { BRACKET_MOD_ONLY } from '../../shared/commands.mjs';
 import { fetchWeek as espnFetchWeek, fetchCurrentWeek as espnFetchCurrentWeek } from './espn.mjs';
 import { buildStandings, mergeAwards, scoreSeason } from './scoring.mjs';
 import { weekOneAnnouncement, lockedMessage, standingsMessage } from './announce.mjs';
+import {
+  fantasyConfig,
+  fetchLeague as fantasyFetchLeague,
+  fetchActivity as fantasyFetchActivity,
+  parseStandings,
+  parseMatchups,
+  standingsMessage as fantasyStandingsMessage,
+  scoresMessage as fantasyScoresMessage,
+  activityMessage as fantasyActivityMessage,
+  activityLine,
+} from './fantasy.mjs';
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -548,6 +559,99 @@ export async function runCron(env, api, deps = {}) {
   if (failures.length) throw new Error(failures.join('; '));
 }
 
+/** Discord rejects a message over this many characters outright. */
+const MAX_MESSAGE = 2000;
+
+/** The cron that drives the fantasy feed. Kept in step with wrangler.toml. */
+export const FANTASY_CRON = '*/10 * * * *';
+
+/**
+ * Most moves one feed run will post. A league that was quiet for a day can
+ * come back with a long backlog; the rest are left unmarked and go out on the
+ * next run rather than one run spending its whole subrequest allowance.
+ */
+const MAX_FEED_POSTS = 10;
+
+/**
+ * /fantasy standings | scores | recent.
+ *
+ * Read-only and public. ESPN's answer is trimmed to Discord's limit rather
+ * than refused, and a failure is reported privately: "ESPN refused the
+ * request" is a thing for whoever runs the bot to see, not the channel.
+ */
+export async function handleFantasy(interaction, env, deps = {}) {
+  const { fetchLeague = fantasyFetchLeague, fetchActivity = fantasyFetchActivity } = deps;
+  const cfg = fantasyConfig(env);
+  if (!cfg) return onlyYou('The fantasy league has not been connected yet.');
+  const { name: sub } = subcommandOf(interaction);
+
+  try {
+    let content;
+    if (sub === 'standings') {
+      content = fantasyStandingsMessage(parseStandings(await fetchLeague(cfg)));
+    } else if (sub === 'scores') {
+      content = fantasyScoresMessage(parseMatchups(await fetchLeague(cfg)));
+    } else if (sub === 'recent') {
+      content = fantasyActivityMessage((await fetchActivity(cfg, { size: 10 })).slice(0, 10));
+    } else {
+      return onlyYou('Not something I handle.');
+    }
+    return say(content.slice(0, MAX_MESSAGE));
+  } catch (err) {
+    console.error(err);
+    return onlyYou(`Could not reach ESPN: ${err.message}`);
+  }
+}
+
+/**
+ * Post new adds, drops and trades from the ESPN league to the feed channel (#standings).
+ *
+ * Each move is posted once, tracked by a done-marker per move for the same
+ * reason the pick'em job tracks its posts: the feed is re-read every run and
+ * overlaps the previous one, so without markers every run would repost it.
+ *
+ * The first run only records what is already there. Posting a league's whole
+ * recent history the moment the bot is switched on would be a wall of old news.
+ *
+ * Does nothing until the league is configured, so deploying this before
+ * FANTASY_LEAGUE_ID is set changes nothing.
+ */
+export async function runFantasyFeed(env, api, deps = {}) {
+  const cfg = fantasyConfig(env);
+  if (!cfg || !env.FANTASY_CHANNEL_ID) return { posted: 0, seeded: false };
+  const {
+    fetchActivity = fantasyFetchActivity,
+    alreadyDone = dbAlreadyDone,
+    markDone = dbMarkDone,
+  } = deps;
+
+  const items = await fetchActivity(cfg, { size: 25 });
+  const keyOf = (a) => `fantasy:${cfg.leagueId}:${a.key}`;
+
+  const seededKey = `fantasy:${cfg.leagueId}:seeded`;
+  if (!(await alreadyDone(env.DB, seededKey))) {
+    for (const a of items) await markDone(env.DB, keyOf(a));
+    await markDone(env.DB, seededKey);
+    return { posted: 0, seeded: true };
+  }
+
+  // Oldest first, so the channel reads in the order things happened.
+  const fresh = [];
+  for (const a of [...items].reverse()) {
+    if (!(await alreadyDone(env.DB, keyOf(a)))) fresh.push(a);
+  }
+
+  let posted = 0;
+  for (const a of fresh.slice(0, MAX_FEED_POSTS)) {
+    // Not caught: a failed post must leave the move unmarked so the next run
+    // sends it, and a failed invocation is the only signal anyone sees.
+    await api.postMessage(env.FANTASY_CHANNEL_ID, activityLine(a));
+    await markDone(env.DB, keyOf(a));
+    posted += 1;
+  }
+  return { posted, seeded: false };
+}
+
 export default {
   async fetch(request, env) {
     // Handled before anything Discord-specific: Discord never calls /picks —
@@ -749,6 +853,10 @@ export default {
       });
     }
 
+    if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'fantasy') {
+      return json({ type: REPLY, data: await handleFantasy(interaction, env) });
+    }
+
     // Fires as the user types into /bracket report's match option. Discord
     // gives the whole round trip about three seconds, which is why entrant
     // names are stored at sign-up instead of fetched here.
@@ -782,6 +890,15 @@ export default {
   },
 
   async scheduled(event, env) {
-    return runCron(env, createApi(env.DISCORD_TOKEN));
+    const api = createApi(env.DISCORD_TOKEN);
+    // The frequent trigger runs only the fantasy feed. The daily one keeps
+    // doing promotions and the pick'em, and is also the default when no cron
+    // is named, so nothing that called this before changes behaviour.
+    if (event?.cron === FANTASY_CRON) {
+      const out = await runFantasyFeed(env, api);
+      console.log(`Fantasy feed: ${out.seeded ? 'seeded' : `${out.posted} posted`}.`);
+      return;
+    }
+    return runCron(env, api);
   },
 };

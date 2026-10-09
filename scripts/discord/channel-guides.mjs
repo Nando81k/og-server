@@ -220,7 +220,7 @@ The NBA league is wired in. OG Bot posts every add, drop and trade here a few mi
 
 Type \`/fantasy standings\` for the table, \`/fantasy scores\` for this week's matchups and \`/fantasy recent\` for the latest moves.
 
-The NFL league joins once it exists. Proposed trades still go to {#trade-court} first — the bot only reports what ESPN has already processed.`,
+The NFL league joins once it exists. To propose a trade, run \`/fantasy link\` once and then \`/trade propose\` — it goes to {#trade-court} for a 24 hour vote. This channel only reports what ESPN has already processed.`,
 
   'smoke-lounge': `**18+ only**
 

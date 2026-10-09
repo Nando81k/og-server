@@ -33,10 +33,16 @@ export function createApi(token) {
     // Nothing pings by default: the leaderboard is full of <@user> mentions
     // and nobody wants a notification every week for appearing in a table.
     // Callers that genuinely mean to ping pass allowedMentions explicitly.
-    postMessage: (channelId, content, allowedMentions = { parse: [] }) =>
+    // `extra` carries anything else a message can hold, like `components`
+    // (the vote buttons on a trade card).
+    postMessage: (channelId, content, allowedMentions = { parse: [] }, extra = {}) =>
       call('POST', `/channels/${channelId}/messages`, {
         content,
         allowed_mentions: allowedMentions,
+        ...extra,
       }),
+    // Edit a message the bot posted. Pass `components: []` to take the buttons off.
+    editMessage: (channelId, messageId, body) =>
+      call('PATCH', `/channels/${channelId}/messages/${messageId}`, body),
   };
 }

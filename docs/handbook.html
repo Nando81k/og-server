@@ -434,7 +434,7 @@
         <div class="room"><span class="nm">#nfl-fantasy-forum<span class="tag">forum</span></span><span class="ds">One thread per thing — every trade, waiver claim, injury scare and grievance gets its own post. Filterable by tag.</span></div>
         <div class="room"><span class="nm">#nba-fantasy-forum<span class="tag">forum</span></span><span class="ds">Same shape. Title it so people can tell whether to open it.</span></div>
         <div class="room"><span class="nm">#standings</span><span class="ds">The NBA league in one place: OG Bot posts every add, drop and trade from ESPN here as it happens. The NFL league joins when it exists.</span></div>
-        <div class="room"><span class="nm">#trade-court</span><span class="ds">Put a trade to a vote: fair, collusion, or robbery. 24 hours.</span></div>
+        <div class="room"><span class="nm">#trade-court</span><span class="ds">Put a trade to a vote with <code class="inline">/trade propose</code>: fair, collusion, or robbery. 24 hours.</span></div>
         <div class="room voice"><span class="nm">Draft Night</span><span class="ds">Exactly what it says, once a year, twice if the NBA league happens.</span></div>
       </div>
     </div>
@@ -530,6 +530,11 @@
       <div class="cmd"><code>/fantasy standings</code><span class="ds">The NBA fantasy league table, straight from ESPN.</span></div>
       <div class="cmd"><code>/fantasy scores</code><span class="ds">This week's matchups and the running score in each.</span></div>
       <div class="cmd"><code>/fantasy recent</code><span class="ds">The latest adds, drops and trades.</span></div>
+      <div class="cmd"><code>/fantasy link &lt;team&gt;</code><span class="ds">Say which ESPN team is yours. Do this once; trades need it.</span></div>
+      <div class="cmd"><code>/trade propose &lt;team&gt; &lt;give&gt; &lt;get&gt; [note]</code><span class="ds">Put a trade to the server's vote in <code class="inline">#trade-court</code>. Up to three players a side, and the other manager gets pinged.</span></div>
+      <div class="cmd"><code>/trade cancel &lt;trade&gt;</code><span class="ds">Withdraw your own proposal while it is still open.</span></div>
+      <div class="cmd"><code>/trade approve &lt;trade&gt;</code><span class="ds">Let a trade stand, whatever the vote said.<span class="mod">MOD</span></span></div>
+      <div class="cmd"><code>/trade veto &lt;trade&gt;</code><span class="ds">Call a trade off. The bot cannot block it in ESPN, so the managers act on this.<span class="mod">MOD</span></span></div>
       <div class="cmd"><code>/award &lt;user&gt; &lt;points&gt; &lt;reason&gt;</code><span class="ds">Hand out season points for anything the pick'em can't score. Public on purpose.<span class="mod">MOD</span></span></div>
     </div>
 
@@ -599,7 +604,7 @@
   </section>
 
   <footer class="shell" style="padding-left:0;padding-right:0">
-    <p>Still coming: fantasy standings pulling Sleeper and ESPN into one board, automated trade court voting, and invite tracking. Everything else on this page is live now.</p>
+    <p>Still coming: the NFL league on Sleeper, player stats and charts on trade cards, and invite tracking. Everything else on this page is live now.</p>
     <p>Glad you're here. Go play something.</p>
   </footer>
 </div>

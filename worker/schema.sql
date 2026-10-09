@@ -95,3 +95,53 @@ CREATE TABLE IF NOT EXISTS tournament_entrants (
   joined_at     TEXT NOT NULL,
   PRIMARY KEY (tournament_id, user_id)
 );
+
+-- Which ESPN team belongs to which Discord user, so the bot knows whose trade a
+-- proposal is and who may not vote on it. Claimed by the user (/fantasy link),
+-- not verified against ESPN: this is a friend group, and a mod can reassign.
+-- One team per user per season, and one user per team.
+CREATE TABLE IF NOT EXISTS fantasy_links (
+  user_id   TEXT    NOT NULL,
+  season    INTEGER NOT NULL,
+  team_id   INTEGER NOT NULL,
+  team_name TEXT    NOT NULL,
+  linked_at TEXT    NOT NULL,
+  PRIMARY KEY (user_id, season)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS fantasy_links_team ON fantasy_links (season, team_id);
+
+-- Trade proposals voted on in Discord. `give` and `get` are JSON lists of
+-- {id, name} from the proposer's point of view, with names captured now so the
+-- card never needs ESPN to render.
+--
+-- status: 'open' | 'approved' | 'flagged' | 'no_quorum'   (voting finished)
+--         'vetoed' | 'cancelled' | 'completed'            (final)
+-- The bot only reports; it cannot stop or make a trade in ESPN.
+CREATE TABLE IF NOT EXISTS trades (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  season      INTEGER NOT NULL,
+  proposer_id TEXT    NOT NULL,
+  from_team   INTEGER NOT NULL,
+  to_team     INTEGER NOT NULL,
+  from_name   TEXT    NOT NULL,
+  to_name     TEXT    NOT NULL,
+  give        TEXT    NOT NULL,
+  get         TEXT    NOT NULL,
+  note        TEXT,
+  status      TEXT    NOT NULL,
+  channel_id  TEXT,
+  message_id  TEXT,
+  created_at  TEXT    NOT NULL,
+  closes_at   TEXT    NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS trades_status ON trades (season, status);
+
+-- One row per voter per trade: voting again changes the vote, not the count.
+CREATE TABLE IF NOT EXISTS trade_votes (
+  trade_id INTEGER NOT NULL,
+  user_id  TEXT    NOT NULL,
+  vote     TEXT    NOT NULL,
+  voted_at TEXT    NOT NULL,
+  PRIMARY KEY (trade_id, user_id)
+);

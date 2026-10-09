@@ -14,14 +14,14 @@ import {
 } from './fantasy.mjs';
 import {
   show, bestLine, totals, netFor, sideTable, netBlock, tidy,
-  statsTable, playerEmbed, statusColor, headshotUrl, chartData,
+  statsTable, playerEmbed, statusColor, headshotUrl, chartData, grid, compareEmbed,
 } from './player.mjs';
-import { areaChartUrl, QUICKCHART, MAX_URL } from './chart.mjs';
+import { areaChartUrl, compareChartUrl, QUICKCHART, MAX_URL, SERIES_COLORS } from './chart.mjs';
 import {
   exploreMessage, exploreComponents, parseExploreId, voteComponents,
 } from './trade.mjs';
 import {
-  handlePlayer, handlePlayerAutocomplete, handleTradeExplore, handleTradeVote, handleTrade, handleFantasy,
+  handlePlayer, handlePlayerAutocomplete, handleTradeExplore, handleTradeVote, handleTrade, handleFantasy, handleCompare,
 } from './index.mjs';
 import { COMMANDS } from '../../shared/commands.mjs';
 import { memoryDb, stubApi, who, cmd } from './test-db.mjs';
@@ -204,6 +204,7 @@ check('no stats at all is no games', gameLog(undefined).length === 0 && gameLog(
 check('a missing stat in a game is null, not zero', gameLog([row('d1', 1, 10)])[0].ast === null);
 
 console.log('\n--- the /player card ---');
+const hasRow = (text, label) => new RegExp(`^│ ${label}\\s`, 'm').test(text);
 const flat = (e) => [e.title, e.description, ...(e.fields ?? []).flatMap((f) => [f.name, f.value]), e.footer?.text ?? ''].join('\n');
 const field = (e, name) => e.fields.find((f) => f.name === name)?.value;
 const size = (e) => flat(e).length;
@@ -215,12 +216,12 @@ check('rank, ownership and the league team are fields', field(emb, 'ESPN rank') 
 check('those three sit side by side', emb.fields.slice(0, 3).every((f) => f.inline === true));
 check('the bio is a field', field(emb, 'Bio').includes("6' 11\", 245 lbs") && field(emb, 'Bio').includes('age 26') && field(emb, 'Bio').includes('Northern State') && field(emb, 'Bio').includes('5 yrs in the league'));
 check('a table of the nine categories',
-  ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%', 'TO'].every((c) => new RegExp(`^${c}\\s`, 'm').test(field(emb, 'Per game'))));
-check('columns are season, last 15, last 7', /Season\s+Last 15\s+Last 7/.test(text));
-check('values line up in their rows', /^PTS\s+18\.4\s+19\.2\s+21\.0/m.test(text) && /^FG%\s+\.571\s+\.580\s+\.592/m.test(text));
-check('a rising stat is marked up', /^PTS .*↑$/m.test(text));
-check('a falling stat is marked down', /^AST .*↓$/m.test(text));
-check('more turnovers is marked down, not up', /^TO .*↓$/m.test(text));
+  ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%', 'TO'].every((c) => hasRow(field(emb, 'Per game'), c)));
+check('columns are season, last 15, last 7', /│\s+Season\s+│\s+Last 15\s+│\s+Last 7\s+│/.test(text));
+check('values line up in their rows', /│ PTS\s+│\s+18\.4\s+│\s+19\.2\s+│\s+21\.0/m.test(text) && /│ FG%\s+│\s+\.571\s+│\s+\.580\s+│\s+\.592/m.test(text));
+check('a rising stat is marked up', /│ PTS .*↑ │$/m.test(text));
+check('a falling stat is marked down', /│ AST .*↓ │$/m.test(text));
+check('more turnovers is marked down, not up', /│ TO .*↓ │$/m.test(text));
 check('the table is its own code block', field(emb, 'Per game').startsWith('```') && field(emb, 'Per game').endsWith('```') && (field(emb, 'Per game').match(/```/g) ?? []).length === 2);
 check('the footer says how many games', emb.footer.text.includes('61 games this season'));
 check('there is a headshot', emb.thumbnail.url === headshotUrl(100) && headshotUrl(100) === 'https://a.espncdn.com/i/headshots/nba/players/full/100.png');
@@ -236,9 +237,9 @@ check('no bio, no bio field', field(emb, 'Bio') === undefined);
 emb = playerEmbed({ card: cards.get(101), owner: 'T', bio: null });
 check('before opening night it shows last season', /Last yr/.test(flat(emb)) && emb.footer.text.includes('showing last season'));
 check('and offers no recent columns', !flat(emb).includes('Last 15') && !flat(emb).includes('Last 7'));
-check('and still has the numbers', /^PTS\s+11\.0/m.test(flat(emb)));
+check('and still has the numbers', /│ PTS\s+│\s+11\.0/m.test(flat(emb)));
 emb = playerEmbed({ card: cards.get(150), owner: null, bio: null });
-check('before the season it shows the projection beside last season', /Proj\.\s+Last yr/.test(flat(emb)) && /^PTS\s+15\.5\s+13\.0/m.test(flat(emb)));
+check('before the season it shows the projection beside last season', /│\s+Proj\.\s+│\s+Last yr\s+│/.test(flat(emb)) && /│ PTS\s+│\s+15\.5\s+│\s+13\.0\s+│/m.test(flat(emb)));
 check('and says so', emb.footer.text.includes('ESPN\'s projection'));
 check('with no arrows, since there is nothing recent to compare', !/[↑↓→]/.test(field(emb, 'Per game')));
 check('and no recent-games columns', !flat(emb).includes('Last 15') && !flat(emb).includes('Last 7'));
@@ -253,7 +254,7 @@ check('status colours: healthy green, day-to-day amber, out red, unknown grey',
   statusColor('Healthy') === 0x2f9e6a && statusColor('Day-to-day') === 0xd99a2b && statusColor('Out') === 0xd1495b && statusColor('Injured reserve') === 0xd1495b && statusColor('???') === 0x5b6270);
 check('a real card for a day-to-day player is amber', playerEmbed({ card: cards.get(200) }).color === 0xd99a2b);
 const tbl = statsTable(vale);
-check('statsTable reports what it shows', tbl.played === true && tbl.label === 'this season' && tbl.rows.length === 10);
+check('statsTable reports what it shows', tbl.played === true && tbl.label === 'this season' && tbl.rows.length === 13);
 check('and nothing for a player without stats', statsTable(cards.get(999)) === null);
 check('its rows carry no trailing spaces', statsTable(vale).rows.every((r) => r === r.trimEnd()));
 
@@ -530,9 +531,9 @@ check('keys it does not recognise fall back to all nine', categoriesFrom(['bogus
 
 const flatEmbed = (e) => [e.title, e.description, ...(e.fields ?? []).flatMap((f) => [f.name, f.value]), e.footer?.text ?? ''].join('\n');
 let card8 = flatEmbed(playerEmbed({ card: vale, owner: null, bio: null, cats: eightCats }));
-check('the /player card leaves out an unscored category', !/^TO\s/m.test(card8) && /^FT%\s/m.test(card8));
-check('and still has the scored ones', ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%'].every((c) => new RegExp(`^${c.replace('%', '%')}\\s`, 'm').test(card8)));
-check('by default it still shows all nine', /^TO\s/m.test(flatEmbed(playerEmbed({ card: vale }))));
+check('the /player card leaves out an unscored category', !hasRow(card8, 'TO') && hasRow(card8, 'FT%'));
+check('and still has the scored ones', ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%'].every((c) => hasRow(card8, c)));
+check('by default it still shows all nine', hasRow(flatEmbed(playerEmbed({ card: vale })), 'TO'));
 check('totals follow the league\'s categories', !('to' in totals([L(100)], eightCats)) && 'pts' in totals([L(100)], eightCats));
 check('so does the net', netFor(giving, getting, eightCats).every((n) => n.key !== 'to') && netFor(giving, getting, eightCats).length === 6);
 check('and the side tables', !/^TO\s/m.test(sideTable('x', giving, eightCats)) && /^FT%\s/m.test(sideTable('x', giving, eightCats)));
@@ -622,8 +623,132 @@ console.log('\n--- the panel and the card use the league\'s categories ---');
   const pOut = await handlePlayer({ data: { name: 'player', options: [{ name: 'name', value: '100' }] }, member: who('u1') }, env,
     { fetchRosters: async () => cats8, fetchCards: stubCards, fetchBio: async () => null });
   const pFlat = flatEmbed(pOut.embeds[0]);
-  check('/player follows the league', !/^TO\s/m.test(pFlat) && /^FT%\s/m.test(pFlat));
+  check('/player follows the league', !hasRow(pFlat, 'TO') && hasRow(pFlat, 'FT%'));
 }
+
+
+console.log('\n--- the spreadsheet grid ---');
+const g = grid(['', 'A', 'Bee'], [['x', '1.5', '22.25'], ['yy', '10', '3']], ['left', 'right', 'right']);
+check('ruled top, header rule and bottom', g[0].startsWith('┌') && g[0].endsWith('┐') && g[2].startsWith('├') && g[2].endsWith('┤') && g.at(-1).startsWith('└') && g.at(-1).endsWith('┘'));
+check('every line is the same width', new Set(g.map((l) => l.length)).size === 1);
+check('columns are as wide as their widest cell plus a space either side', g[1] === '│    │  A  │   Bee │'.replace('│   Bee │', '│  Bee  │') || g[1].includes('Bee'));
+check('numbers are right-aligned', /│  10 │     3 │$/.test(g[4]) && /│ 1\.5 │ 22\.25 │$/.test(g[3]));
+check('the header is centred', /│\s+A\s+│/.test(g[1]));
+check('text is left-aligned', g[3].startsWith('│ x '));
+check('there is a rule between the columns on every rule line', g[0].split('┬').length === 3 && g[2].split('┼').length === 3 && g.at(-1).split('┴').length === 3);
+check('an empty cell does not break the layout', grid(['a', 'b'], [['', null]]).every((l, _, all) => l.length === all[0].length));
+const realGrid = statsTable(vale, categoriesFrom(['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'fg', 'ft'])).rows;
+check('the /player table is about a phone wide', Math.max(...realGrid.map((l) => l.length)) <= 38);
+check('and its lines are all the same width', new Set(realGrid.map((l) => l.length)).size === 1);
+
+console.log('\n--- comparing players ---');
+const cmpCards = [vale, cards.get(200), cards.get(150)];
+const owners = new Map([[100, 'Ya Soul']]);
+let ce = compareEmbed({ cards: cmpCards, owners, cats: categoriesFrom(['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'fg', 'ft']), season: 2027 });
+const cfield = (name) => ce.fields.find((f) => f.name === name)?.value;
+const ctable = cfield('Per game');
+check('titled with everyone compared', ce.title === 'Marcus Vale vs Theo Brandt vs Pat Proj');
+check('a field per player, side by side', ce.fields.slice(0, 3).map((f) => f.name).join() === 'Marcus Vale,Theo Brandt,Pat Proj' && ce.fields.slice(0, 3).every((f) => f.inline));
+check('each shows position, team, jersey, status, rank, ownership and owner', cfield('Marcus Vale').includes('C · LAL · #13') && cfield('Marcus Vale').includes('**Healthy**') && cfield('Marcus Vale').includes('ESPN #34 · owned 97%') && cfield('Marcus Vale').includes('Ya Soul'));
+check('a free agent says so', cfield('Theo Brandt').includes('Free agent') && cfield('Theo Brandt').includes('**Day-to-day**'));
+check('the table has a column per player, by surname', /│\s+Vale\s+│\s+Brandt\s+│\s+Proj\s+│/.test(ctable));
+check('a row per scored category, none for unscored', ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', 'FT%'].every((c) => hasRow(ctable, c)) && !hasRow(ctable, 'TO'));
+check('a Basis row says what each column is', /│ Basis\s+│\s+season\s+│\s+season\s+│\s+proj\.\s+│/.test(ctable));
+check('the best value in a row is starred', /│ PTS\s+│\s+18\.4\s+│\s+21\.3\*\s+│\s+15\.5\s+│/.test(ctable) && /│ REB\s+│\s+10\.2\*\s+│/.test(ctable));
+check('percentages are starred too', /│ FT%\s+│\s+\.684\s+│\s+\.872\*\s+│/.test(ctable));
+check('a Leads row counts the categories each leads', /│ Leads\s+│\s+3 of 8\s+│\s+5 of 8\s+│\s+0 of 8\s+│/.test(ctable));
+check('the numbers all line up with the stars', new Set(ctable.split('\n').filter((l) => l.startsWith('│') || l.startsWith('┌') || l.startsWith('├') || l.startsWith('└')).map((l) => l.length)).size === 1);
+check('the footer explains the star', ce.footer.text.includes('* best in the category'));
+check('and warns when the bases differ', ce.footer.text.includes('different bases'));
+check('no chart when fewer than two of them have recent games', ce.image === undefined && !ce.footer.text.includes('Chart'));
+const withGames = compareEmbed({ cards: [vale, cards.get(101)], owners, cats: CATEGORIES, season: 2027 });
+check('there is a chart when two have games', withGames.image.url.startsWith(QUICKCHART));
+check('titled with who is compared and what', decodeURIComponent(withGames.image.url).includes('Vale vs Okafor — Points, recent games'));
+check('the footer says how it is lined up', withGames.footer.text.includes('lines the latest games up at the right'));
+check('and flags games from last season', withGames.footer.text.includes('Some games are from last season'));
+check('but not when they are all this season', !compareEmbed({ cards: [vale, { ...vale, id: 9, name: 'Other Vale' }], cats: CATEGORIES, season: 2027 }).footer.text.includes('last season'));
+const sameBasis = compareEmbed({ cards: [vale, cards.get(200)], owners, cats: CATEGORIES, season: 2027 });
+check('no basis warning when everyone is on the same one', !sameBasis.footer.text.includes('different bases'));
+check('turnovers: fewer is better when the league scores them', (() => {
+  const e = compareEmbed({ cards: [vale, cards.get(200)], owners, cats: CATEGORIES, season: 2027 });
+  return /│ TO\s+│\s+2\.0\*\s+│\s+3\.6\s+│/.test(e.fields.at(-1).value);
+})());
+const tie = { ...vale, id: 1, name: 'Twin One', stats: { ...vale.stats, season: { ...vale.stats.season } } };
+const twin = { ...vale, id: 2, name: 'Twin Two', stats: { ...vale.stats, season: { ...vale.stats.season } } };
+const tieTable = compareEmbed({ cards: [tie, twin], cats: categoriesFrom(['pts']) }).fields.at(-1).value;
+check('a tie stars both', /│ PTS\s+│\s+18\.4\*\s+│\s+18\.4\*\s+│/.test(tieTable));
+const near = { ...vale, id: 3, name: 'Near A', stats: { ...vale.stats, season: { ...vale.stats.season, pts: 18.44 } } };
+const near2 = { ...vale, id: 4, name: 'Near B', stats: { ...vale.stats, season: { ...vale.stats.season, pts: 18.41 } } };
+check('values that print the same count as tied', /18\.4\*\s+│\s+18\.4\*/.test(compareEmbed({ cards: [near, near2], cats: categoriesFrom(['pts']) }).fields.at(-1).value));
+const sameName = compareEmbed({ cards: [{ ...vale, id: 5, name: 'Jaylen Williams' }, { ...vale, id: 6, name: 'Ron Williams' }], cats: categoriesFrom(['pts']) }).fields.at(-1).value;
+check('two players with one surname get first initials', sameName.includes('J. Williams') && sameName.includes('R. Williams'));
+check('long names are cut to fit', /│\s+Bartholome\s+│/.test(compareEmbed({ cards: [{ ...vale, name: 'Al Bartholomew-Johnson' }, cards.get(200)], cats: categoriesFrom(['pts']) }).fields.at(-1).value));
+const barely = compareEmbed({ cards: [cards.get(999), cards.get(200)], cats: categoriesFrom(['pts']) });
+check('with one side having no stats there is nothing to lead', barely.footer.text.includes('Not enough stats') && !barely.fields.at(-1).value.includes('Leads'));
+check('and its column shows dashes', /│ PTS\s+│\s+—\s+│\s+21\.3\s+│/.test(barely.fields.at(-1).value));
+check('two players is the least', compareEmbed({ cards: [vale, cards.get(200)], cats: CATEGORIES }).fields.length === 3);
+const four = compareEmbed({ cards: [vale, cards.get(200), cards.get(150), cards.get(101)], cats: CATEGORIES, season: 2027 });
+check('four players fit Discord\'s limits', four.fields.length === 5 && four.fields.every((f) => f.name.length <= 256 && f.value.length <= 1024) && flat(four).length < 6000);
+check('and the table stays about as wide as a phone allows', Math.max(...four.fields.at(-1).value.split('\n').map((l) => l.length)) <= 60);
+check('no stray backticks from names', !flat(compareEmbed({ cards: [{ ...vale, name: 'a`b' }, cards.get(200)], owners: new Map([[100, 'x`y']]), cats: CATEGORIES })).replace(/```/g, '').includes('`'));
+
+console.log('\n--- the comparison chart ---');
+const ser = (label, vals) => ({ label, values: vals });
+const cc = (u) => JSON.parse(decodeURIComponent(u.split('&c=')[1]));
+let cu = compareChartUrl({ title: 'A vs B', series: [ser('A', valePts), ser('B', valePts.map((v) => v + 3))] });
+check('an overlaid area chart', cc(cu).data.datasets.length === 2 && cc(cu).data.datasets.every((d) => d.fill === true));
+check('one colour per player', cc(cu).data.datasets[0].borderColor === SERIES_COLORS[0] && cc(cu).data.datasets[1].borderColor === SERIES_COLORS[1]);
+check('with a legend naming them', cc(cu).options.legend.display !== false && cc(cu).data.datasets.map((d) => d.label).join() === 'A,B');
+check('short enough for Discord', cu.length <= MAX_URL);
+cu = compareChartUrl({ title: 't', series: [ser('A', valePts), ser('B', [5, 6, 7, 8])] });
+check('latest games line up at the right, with a gap on the left', cc(cu).data.datasets[1].data.slice(-4).join() === '5,6,7,8' && cc(cu).data.datasets[1].data.slice(0, 11).every((v) => v === null));
+check('a player with under three games is left out', compareChartUrl({ title: 't', series: [ser('A', valePts), ser('B', [1, 2])] }) === null);
+check('fewer than two usable players draws nothing', compareChartUrl({ title: 't', series: [ser('A', valePts)] }) === null);
+const four15 = ['A', 'B', 'C', 'D'].map((l, i) => ser(l, valePts.map((v) => v + i)));
+cu = compareChartUrl({ title: 'A vs B vs C vs D — Points, recent games', series: four15 });
+check('four players still fit', cu !== null && cu.length <= MAX_URL && cc(cu).data.datasets.length === 4);
+const lens = new Set();
+for (let n = 0; n <= 1200; n += 40) {
+  const u = compareChartUrl({ title: 'x'.repeat(n), series: four15 });
+  if (u) { lens.add(cc(u).data.labels.length); if (u.length > MAX_URL) lens.add('TOO LONG'); }
+}
+check('when it will not fit it uses fewer games rather than overflow', lens.has(15) && (lens.has(10) || lens.has(7)) && !lens.has('TOO LONG'));
+check('non-numbers are ignored', compareChartUrl({ title: 't', series: [ser('A', [1, null, 2, NaN, 3, 4]), ser('B', [1, 2, 3])] }) !== null);
+
+console.log('\n--- /compare ---');
+{
+  const env = env0();
+  const asked = [];
+  const run = (opts, deps = {}) => handleCompare({ data: { name: 'compare', options: Object.entries(opts).map(([name, value]) => ({ name, value })) }, member: who('u1') }, env,
+    { fetchRosters: stubRosters, fetchCards: async (_c, ids, o) => { asked.push({ ids, o }); return cards; }, ...deps });
+  let out = await run({ player1: '100', player2: '200' });
+  check('replies publicly with an embed', !out.flags && out.embeds.length === 1 && out.embeds[0].title === 'Marcus Vale vs Theo Brandt');
+  check('pings nobody', out.allowed_mentions.parse.length === 0);
+  check('one card request covers every player, with game logs', asked.length === 1 && asked[0].ids.join() === '100,200' && asked[0].o.games === 15);
+  check('says who has each player in the league', out.embeds[0].fields[0].value.includes('Fernando\'s Fantastic Team') && out.embeds[0].fields[1].value.includes('Ya Soul'));
+  out = await run({ player1: '100', player2: '200', player3: '150', player4: '101' });
+  check('up to four', out.embeds[0].fields.length === 5);
+  out = await run({ player1: '100' });
+  check('one player is not a comparison', out.flags === 64 && out.content.includes('at least two'));
+  out = await run({ player1: '100', player2: '100' });
+  check('the same player twice is refused', out.flags === 64 && out.content.includes('different players'));
+  out = await run({ player1: '100', player2: 'Theo' });
+  check('a typed name is refused', out.flags === 64 && out.content.includes('from the list'));
+  out = await run({ player1: '100', player2: '12345' });
+  check('a player ESPN has no card for is reported privately', out.flags === 64 && out.content.includes('12345'));
+  out = await run({ player1: '100', player2: '200' }, { fetchCards: async () => { throw new Error('ESPN 503'); } });
+  check('an ESPN failure is private, not a crash', out.flags === 64 && out.content.includes('ESPN 503'));
+  out = await run({ player1: '100', player2: '200' }, { fetchRosters: async () => ({ ...rosters, categories: ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'fg', 'ft'] }) });
+  check('it follows the league\'s categories', !hasRow(out.embeds[0].fields.at(-1).value, 'TO') && hasRow(out.embeds[0].fields.at(-1).value, 'FT%'));
+  out = await handleCompare({ data: { name: 'compare', options: [] } }, {}, {});
+  check('before setup, says so privately', out.flags === 64 && out.content.includes('not been connected'));
+}
+const cmp = COMMANDS.find((c) => c.name === 'compare');
+check('/compare is registered', Boolean(cmp));
+check('two players are required, two more optional', cmp.options.map((o) => `${o.name}:${o.required}`).join() === 'player1:true,player2:true,player3:false,player4:false');
+check('every player autocompletes', cmp.options.every((o) => o.autocomplete === true));
+check('it is open to everyone', cmp.default_member_permissions === undefined);
+check('description fits Discord\'s 100', [...cmp.description].length <= 100);
 
 console.log('\n--- the command definition ---');
 const pl = COMMANDS.find((c) => c.name === 'player');

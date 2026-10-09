@@ -187,6 +187,16 @@ export const COMMANDS = [
     ],
   },
   {
+    name: 'compare',
+    description: 'Put two to four players side by side',
+    options: [
+      { name: 'player1', description: 'The first player', type: STRING, required: true, autocomplete: true },
+      { name: 'player2', description: 'The second player', type: STRING, required: true, autocomplete: true },
+      { name: 'player3', description: 'A third player', type: STRING, required: false, autocomplete: true },
+      { name: 'player4', description: 'A fourth player', type: STRING, required: false, autocomplete: true },
+    ],
+  },
+  {
     name: 'trade',
     description: 'Propose a fantasy trade and let the server vote on it',
     // Proposing and cancelling your own are for any manager, and Discord can

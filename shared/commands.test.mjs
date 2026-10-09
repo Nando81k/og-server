@@ -48,7 +48,7 @@ check('every value fits Discord\'s 100 character limit',
 
 console.log('\n--- the commands Discord is told about ---');
 check('registers exactly the commands we mean to',
-  COMMANDS.map((c) => c.name).sort().join(',') === 'award,bracket,fantasy,leaderboard,lfg,picks,player,trade');
+  COMMANDS.map((c) => c.name).sort().join(',') === 'award,bracket,compare,fantasy,leaderboard,lfg,picks,player,trade');
 check('every command has a name and description',
   COMMANDS.every((c) => c.name && c.description));
 check('no duplicate command names',

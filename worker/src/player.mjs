@@ -7,6 +7,7 @@
  */
 
 import { CATEGORIES } from './fantasy.mjs';
+import { compareChartUrl } from './chart.mjs';
 
 /** One line, bounded, and no backticks (they would end a code block early). */
 export function tidy(text, max = 100) {
@@ -54,7 +55,35 @@ function trend(base, recent, cat) {
 }
 
 /**
- * The per-game table for a card, as monospace rows, plus what it is showing.
+ * A spreadsheet-style grid in monospace rows: ruled lines, a centred header,
+ * and every column as wide as its widest cell with a space either side.
+ *
+ * `align` is 'left' | 'right' | 'center' per column. Discord can't draw a
+ * table, so this is a code block of box-drawing characters; it is about 36
+ * characters wide for a card, which fits a phone without wrapping.
+ */
+export function grid(headers, rows, align = []) {
+  const widths = headers.map((h, i) => Math.max(String(h).length, ...rows.map((r) => String(r[i] ?? '').length)));
+  const pad = (text, w, how) => {
+    const t = String(text ?? '');
+    const gap = w - t.length;
+    if (how === 'right') return ' '.repeat(gap) + t;
+    if (how === 'center') return ' '.repeat(Math.floor(gap / 2)) + t + ' '.repeat(gap - Math.floor(gap / 2));
+    return t + ' '.repeat(gap);
+  };
+  const rule = (l, m, r) => l + widths.map((w) => '─'.repeat(w + 2)).join(m) + r;
+  const line = (cells, how) => '│' + cells.map((c, i) => ` ${pad(c, widths[i], how(i))} `).join('│') + '│';
+  return [
+    rule('┌', '┬', '┐'),
+    line(headers, () => 'center'),
+    rule('├', '┼', '┤'),
+    ...rows.map((r) => line(r, (i) => align[i] ?? 'left')),
+    rule('└', '┴', '┘'),
+  ];
+}
+
+/**
+ * The per-game table for a card, plus what it is showing.
  *
  * Once he has played: season, last 15 and last 7, with an arrow comparing the
  * last 7 to the season. Before that: ESPN's projection beside last season.
@@ -70,20 +99,22 @@ export function statsTable(card, cats = CATEGORIES) {
   const shown = columns.filter(([, line]) => line);
   const l7 = played ? card.stats.last7 : null;
 
-  const widths = [5, 9, 9, 8];
-  const rows = [['', ...shown.map(([t]) => t)].map((h, i) => h.padEnd(widths[i])).join('').trimEnd()];
-  for (const cat of cats) {
-    const cells = [cat.label, ...shown.map(([, line]) => show(line[cat.key], cat))];
-    let row = cells.map((c, i) => String(c).padEnd(widths[i])).join('');
-    if (l7) row += trend(base[cat.key], l7[cat.key], cat);
-    rows.push(row.trimEnd());
-  }
+  const headers = ['', ...shown.map(([t]) => t)];
+  const rows = cats.map((cat) => [
+    cat.label,
+    ...shown.map(([title, line]) => {
+      const value = show(line[cat.key], cat);
+      // The arrow rides on the last-7 cell, and every cell in that column gets
+      // a trailing character so the numbers stay lined up.
+      return l7 && line === l7 ? `${value} ${trend(base[cat.key], l7[cat.key], cat)}` : value;
+    }),
+  ]);
   const note = played
     ? `Per game, ${base.gp ?? '?'} games this season. Arrows compare the last 7 games to the season.`
     : label === 'projected'
       ? 'No games yet this season: ESPN\'s projection beside last season.'
       : 'No games yet this season and no projection: showing last season.';
-  return { rows, note, label, played };
+  return { rows: grid(headers, rows, headers.map((_, i) => (i === 0 ? 'left' : 'right'))), note, label, played };
 }
 
 /** ESPN's headshot for a player. If one is missing Discord just shows none. */
@@ -163,6 +194,104 @@ export function playerEmbed({ card, owner = null, bio = null, cats = CATEGORIES,
   };
   if (chartUrl) embed.image = { url: chartUrl };
   if (table) embed.footer = { text: table.note };
+  return embed;
+}
+
+const BASIS = { 'this season': 'season', projected: 'proj.', 'last season': 'last yr' };
+
+/** Short column names; two players with the same surname get a first initial. */
+function shortNames(cards) {
+  const last = cards.map((c) => tidy(c.name).split(' ').slice(-1)[0]);
+  return cards.map((c, i) => {
+    const dup = last.filter((l) => l === last[i]).length > 1;
+    const first = tidy(c.name).split(' ')[0];
+    return dup ? `${first[0]}. ${last[i]}`.slice(0, 11) : last[i].slice(0, 10);
+  });
+}
+
+/**
+ * Who leads each category, by what is shown.
+ *
+ * Compared after rounding to the displayed precision, so two players who both
+ * read 2.1 are tied and both marked, not split by an invisible third decimal.
+ */
+function leaders(entries, cat) {
+  const shown = entries.map((e) => (e.line && typeof e.line[cat.key] === 'number' ? Number(show(e.line[cat.key], cat)) : null));
+  const real = shown.filter((v) => v !== null);
+  if (real.length < 2) return new Set();
+  const best = cat.lowerIsBetter ? Math.min(...real) : Math.max(...real);
+  return new Set(shown.map((v, i) => (v === best ? i : -1)).filter((i) => i >= 0));
+}
+
+/**
+ * Two to four players side by side, as a Discord embed.
+ *
+ * One column per player, one row per category the league scores, the best
+ * value in each row starred, and a last row counting the categories each
+ * leads (this league is decided by categories won). A "Basis" row says whether
+ * each column is this season, a projection, or last season, so a veteran's
+ * games are not silently set against a rookie's projection.
+ *
+ * `cards` are parsed player cards in the order asked; `owners` maps player id
+ * to the team that has him in this league.
+ */
+export function compareEmbed({ cards, owners = new Map(), cats = CATEGORIES, season = null }) {
+  const entries = cards.map((card) => ({ card, ...bestLine(card) }));
+  const names = shortNames(cards);
+
+  const rows = [['Basis', ...entries.map((e) => `${BASIS[e.label] ?? '—'} `)]];
+  const wins = entries.map(() => 0);
+  for (const cat of cats) {
+    const lead = leaders(entries, cat);
+    lead.forEach((i) => { wins[i] += 1; });
+    rows.push([cat.label, ...entries.map((e, i) => `${show(e.line?.[cat.key], cat)}${lead.has(i) ? '*' : ' '}`)]);
+  }
+  const enough = entries.filter((e) => e.line).length >= 2;
+  if (enough) rows.push(['Leads', ...wins.map((w) => `${w} of ${cats.length} `)]);
+
+  const fields = cards.map((card) => {
+    const owner = owners.get(card.id);
+    return {
+      name: tidy(card.name, 60),
+      value: [
+        [card.position, card.proTeam, card.jersey ? `#${card.jersey}` : null].filter(Boolean).join(' · ') || '—',
+        `**${tidy(card.injury || 'Healthy', 30)}**`,
+        [card.rank ? `ESPN #${card.rank}` : null, card.owned != null ? `owned ${Math.round(card.owned)}%` : null].filter(Boolean).join(' · ') || '—',
+        owner ? tidy(owner, 40) : 'Free agent',
+      ].join('\n'),
+      inline: true,
+    };
+  });
+  fields.push({
+    name: 'Per game',
+    value: ['```', ...grid(['', ...names], rows, ['left', ...names.map(() => 'right')]), '```'].join('\n'),
+    inline: false,
+  });
+
+  // The chart: the first counting stat, the last games of each, lined up by recency.
+  const cat = cats.find((c) => !c.pct) ?? CATEGORIES[0];
+  const series = cards.map((card, i) => ({
+    label: names[i],
+    values: (card.games ?? []).map((g) => g[cat.key]).filter((v) => typeof v === 'number'),
+  }));
+  const fromOldSeason = cards.some((c) => (c.games ?? []).length && season != null && c.games.at(-1).season !== season);
+  const chartUrl = compareChartUrl({ title: `${names.join(' vs ')} — ${cat.name}, recent games`, series });
+
+  const notes = [];
+  if (enough) notes.push('* best in the category (ties are both starred). Leads counts categories.');
+  else notes.push('Not enough stats from ESPN to compare these players yet.');
+  if (enough && new Set(entries.filter((e) => e.line).map((e) => e.label)).size > 1) {
+    notes.push('The columns are on different bases (see Basis), so read the leads loosely.');
+  }
+  if (chartUrl) notes.push(`Chart lines the latest games up at the right.${fromOldSeason ? ' Some games are from last season.' : ''}`);
+
+  const embed = {
+    title: tidy(cards.map((c) => c.name).join(' vs '), 250),
+    color: 0x6b8afd,
+    fields,
+    footer: { text: notes.join(' ') },
+  };
+  if (chartUrl) embed.image = { url: chartUrl };
   return embed;
 }
 

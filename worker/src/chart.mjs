@@ -81,3 +81,61 @@ export function areaChartUrl({ title, values, color = '#6b8afd', accent = '#d99a
   }
   return null;
 }
+
+/** One colour per compared player, readable on the dark background. */
+export const SERIES_COLORS = ['#6b8afd', '#f0b25a', '#5fd0a0', '#e68ab8'];
+
+/**
+ * Several players' recent games on one area chart.
+ *
+ * `series` is [{ label, values }], newest game last. Games are lined up by
+ * recency (the latest game of each at the right edge), because two players
+ * rarely play on the same nights; a player with fewer games leaves a gap on
+ * the left. Players with under three games are left out, and with fewer than
+ * two players left there is nothing to compare, so it returns null.
+ *
+ * Four players' numbers do not all fit in a URL, so it tries 15 games, then
+ * 10, 7 and 5, and gives up only if even that is too long.
+ */
+export function compareChartUrl({ title, series }) {
+  const usable = series
+    .map((s) => ({ label: s.label, values: s.values.filter((v) => typeof v === 'number' && Number.isFinite(v)).map(round1) }))
+    .filter((s) => s.values.length >= 3);
+  if (usable.length < 2) return null;
+
+  for (const window of [15, 10, 7, 5]) {
+    const trimmed = usable.map((s) => ({ ...s, values: s.values.slice(-window) }));
+    const n = Math.max(...trimmed.map((s) => s.values.length));
+    // Kept lean on purpose: every character is multiplied by URL-encoding, and
+    // four players' worth of numbers is close to the limit. Styling shared by
+    // all the lines lives once under `elements` instead of on each dataset.
+    const config = {
+      type: 'line',
+      data: {
+        labels: Array.from({ length: n }, (_, i) => i + 1),
+        datasets: trimmed.map((s, i) => {
+          const color = SERIES_COLORS[i % SERIES_COLORS.length];
+          return {
+            label: s.label,
+            data: [...Array(n - s.values.length).fill(null), ...s.values],
+            fill: true,
+            borderColor: color,
+            backgroundColor: rgba(color, 0.18),
+          };
+        }),
+      },
+      options: {
+        elements: { line: { tension: 0.35, borderWidth: 2 }, point: { radius: 0 } },
+        title: { display: true, text: title, fontColor: '#eceef1', fontSize: 15 },
+        legend: { labels: { fontColor: '#c9ced6', boxWidth: 14 } },
+        scales: {
+          yAxes: [{ ticks: { beginAtZero: true, fontColor: '#a0a7b0' }, gridLines: { color: '#33373e' } }],
+          xAxes: [{ ticks: { fontColor: '#a0a7b0' }, gridLines: { display: false } }],
+        },
+      },
+    };
+    const url = `${QUICKCHART}?bkg=%231b1d21&w=640&h=300&v=2.9.4&c=${encodeURIComponent(JSON.stringify(config))}`;
+    if (url.length <= MAX_URL) return url;
+  }
+  return null;
+}
